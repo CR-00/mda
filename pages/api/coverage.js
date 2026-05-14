@@ -1,0 +1,28 @@
+import fs from 'fs';
+import path from 'path';
+
+const FILE_RE = /^([A-Z]+)_vs_([A-Z]+)_([a-z0-9]+)_([a-z]+)_(ip|oop)_(.+)\.json$/;
+
+export default function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).end();
+
+  const dir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
+  let files = [];
+  try {
+    files = fs.readdirSync(dir);
+  } catch {
+    return res.status(200).json({ uploads: {} });
+  }
+
+  const uploads = {};
+  for (const f of files) {
+    const m = f.match(FILE_RE);
+    if (!m) continue;
+    const [, oop, ip, potType, playerType, perspective, line] = m;
+    const key = `${oop}_vs_${ip}_${potType}_${playerType}_${perspective}`;
+    if (!uploads[key]) uploads[key] = { oop, ip, potType, playerType, perspective, lines: [] };
+    uploads[key].lines.push(line);
+  }
+
+  return res.status(200).json({ uploads });
+}

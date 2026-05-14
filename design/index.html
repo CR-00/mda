@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Pop-Stat Lookup — Poker DB Analysis</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css" />
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail" data-bg-color="#14171d">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#14171d"/>
+    <g transform="translate(420 220)" font-family="monospace" font-weight="700">
+      <rect x="0" y="0" width="80" height="110" rx="10" fill="#f2efe7"/>
+      <text x="40" y="68" fill="#14171d" font-size="56" text-anchor="middle">A</text>
+      <text x="40" y="100" fill="#14171d" font-size="28" text-anchor="middle">♠</text>
+
+      <rect x="100" y="0" width="80" height="110" rx="10" fill="#f2efe7"/>
+      <text x="140" y="68" fill="#d04848" font-size="56" text-anchor="middle">K</text>
+      <text x="140" y="100" fill="#d04848" font-size="28" text-anchor="middle">♥</text>
+
+      <rect x="200" y="0" width="80" height="110" rx="10" fill="#f2efe7"/>
+      <text x="240" y="68" fill="#2d7ad6" font-size="56" text-anchor="middle">Q</text>
+      <text x="240" y="100" fill="#2d7ad6" font-size="28" text-anchor="middle">♦</text>
+
+      <rect x="320" y="0" width="80" height="110" rx="10" fill="#f2efe7"/>
+      <text x="360" y="68" fill="#2d8a4a" font-size="56" text-anchor="middle">J</text>
+      <text x="360" y="100" fill="#2d8a4a" font-size="28" text-anchor="middle">♣</text>
+    </g>
+    <text x="600" y="430" fill="#5fb38a" font-size="38" font-family="monospace" font-weight="700" text-anchor="middle" letter-spacing="6">MDA</text>
+    <text x="600" y="470" fill="#7d8590" font-size="18" font-family="monospace" text-anchor="middle" letter-spacing="3">POP-STAT LOOKUP</text>
+  </svg>
+</template>
+<div id="root"></div>
+
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="config-bar.jsx"></script>
+<script type="text/babel" src="timeline.jsx"></script>
+<script type="text/babel" src="results.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "density": "compact",
+  "showOpponentCard": true
+}/*EDITMODE-END*/;
+
+// Auto-derive filters that match the current board
+function deriveAutoFilters(board) {
+  const matched = [];
+  window.PokerData.FILTERS.texture.forEach(f => {
+    if (f.auto && f.auto(board)) matched.push(f);
+  });
+  return matched;
+}
+
+function App() {
+  const [ipPos, setIpPos] = useState("BTN");
+  const [oopPos, setOopPos] = useState("BB");
+  const [potType, setPotType] = useState("srp");
+  const [hero, setHero] = useState("BTN");
+  const [stack, setStack] = useState("100bb");
+
+  const matchup = `${ipPos.toLowerCase()}_${oopPos.toLowerCase()}_${potType}`;
+  const list = window.PokerData.MATCHUPS;
+  if (!list.find(x => x.id === matchup)) {
+    list.push({
+      id: matchup,
+      label: `${ipPos} vs ${oopPos}`,
+      ip: ipPos, oop: oopPos,
+      desc: window.ConfigBarConsts.POT_TYPES.find(p => p.id === potType).full,
+    });
+  } else {
+    const rec = list.find(x => x.id === matchup);
+    rec.ip = ipPos; rec.oop = oopPos;
+  }
+
+  const [line, setLine] = useState([
+    { street: "flop", actor: "BB", action: "check", sizing: 0 },
+    { street: "flop", actor: "BTN", action: "bet", sizing: 0 },
+    { street: "flop", actor: "BB", action: "call", sizing: 0 },
+    { street: "turn", actor: "BB", action: "_street_start", sizing: 0, marker: true },
+    { street: "turn", actor: "BB", action: "check", sizing: 0 },
+    { street: "turn", actor: "BTN", action: "bet", sizing: 0 },
+    { street: "turn", actor: "BB", action: "call", sizing: 0 },
+    { street: "river", actor: "BB", action: "_street_start", sizing: 0, marker: true },
+    { street: "river", actor: "BB", action: "check", sizing: 0 },
+  ]);
+  const [board, setBoard] = useState([
+    { rank: "K", suit: "s" },
+    { rank: "8", suit: "h" },
+    { rank: "4", suit: "d" },
+    { rank: "Q", suit: "c" },
+    null,
+  ]);
+
+  const autoFilters = useMemo(() => deriveAutoFilters(board), [board]);
+  const filters = useMemo(() => ({ texture: autoFilters.map(f => f.id), pool: [] }), [autoFilters]);
+
+  const [tweaks, setTweak] = window.useTweaks ? window.useTweaks(TWEAK_DEFAULTS) : [TWEAK_DEFAULTS, () => {}];
+
+  useEffect(() => {
+    if (hero !== ipPos && hero !== oopPos) setHero(ipPos);
+  }, [ipPos, oopPos]);
+
+  return (
+    <div className="app no-topbar">
+      <div className="page">
+        <section className="setup-card">
+          <ConfigBar
+            ipPos={ipPos} setIpPos={setIpPos}
+            oopPos={oopPos} setOopPos={setOopPos}
+            potType={potType} setPotType={setPotType}
+            board={board} setBoard={setBoard}
+          />
+        </section>
+
+        <section className="line-card">
+          <ActionTimeline
+            line={line} setLine={setLine}
+            matchup={matchup} hero={hero}
+            board={board} setBoard={setBoard}
+          />
+
+        </section>
+
+        {line.filter(a => !a.marker).length > 0 ? (
+          <ResultsPane
+            line={line.filter(a => !a.marker)}
+            hero={hero}
+            matchup={matchup}
+            filters={filters}
+            board={board}
+          />
+        ) : (
+          <div className="empty-state">
+            <div className="es-title">Build an action line</div>
+            <div className="es-sub">Pick actions on the timeline above to see population frequencies and EV.</div>
+          </div>
+        )}
+      </div>
+
+      {window.TweaksPanel && (
+        <window.TweaksPanel title="Tweaks">
+          <window.TweakSection title="Display">
+            <window.TweakRadio
+              label="Density"
+              value={tweaks.density}
+              onChange={(v) => setTweak("density", v)}
+              options={[
+                { value: "compact", label: "Compact" },
+                { value: "balanced", label: "Balanced" },
+                { value: "spacious", label: "Spacious" },
+              ]}
+            />
+            <window.TweakToggle
+              label="Show opponent card"
+              value={tweaks.showOpponentCard}
+              onChange={(v) => setTweak("showOpponentCard", v)}
+            />
+          </window.TweakSection>
+        </window.TweaksPanel>
+      )}
+    </div>
+  );
+}
+
+setTimeout(() => {
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+}, 100);
+</script>
+</body>
+</html>
