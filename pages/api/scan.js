@@ -1,5 +1,4 @@
-import fs from 'fs';
-import path from 'path';
+import { list } from '@vercel/blob';
 
 function adaptOverall(rows) {
   const overall = rows.find(r => r.metric === 'Overall');
@@ -20,33 +19,28 @@ function adaptOverall(rows) {
   };
 }
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
   const { matchup } = req.query;
   if (!matchup) return res.status(400).json({ error: 'Missing matchup' });
 
-  const dir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
-  let files;
-  try {
-    files = fs.readdirSync(dir);
-  } catch {
-    return res.status(200).json({ result: {} });
-  }
-
   const prefix = matchup + '_';
-  const result = {};
+  const { blobs } = await list({ prefix });
 
-  for (const f of files) {
-    if (!f.startsWith(prefix) || !f.endsWith('.json')) continue;
-    const lineCode = f.slice(prefix.length, -5);
+  const result = {};
+  await Promise.all(blobs.map(async (blob) => {
+    if (!blob.pathname.endsWith('.json')) return;
+    const lineCode = blob.pathname.slice(prefix.length, -5);
     try {
-      const raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      const raw = await (await fetch(blob.url, {
+        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
+      })).json();
       const rows = Array.isArray(raw) ? raw : raw.data;
-      if (!Array.isArray(rows)) continue;
+      if (!Array.isArray(rows)) return;
       const adapted = adaptOverall(rows);
       if (adapted) result[lineCode] = adapted;
     } catch {}
-  }
+  }));
 
   return res.status(200).json({ result });
 }

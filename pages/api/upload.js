@@ -1,11 +1,10 @@
-import fs from 'fs';
-import path from 'path';
+import { put } from '@vercel/blob';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '10mb' } },
 };
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const body = req.body;
@@ -20,7 +19,6 @@ export default function handler(req, res) {
   const playerType = (body?.query?.['Player Type']?.[0] ?? 'reg').toLowerCase().replace(/\s+/g, '');
   const perspective = (body?.query?.['IP/OOP']?.[0] ?? 'IP').toLowerCase() === 'oop' ? 'oop' : 'ip';
 
-  // Map specific IP positions to LP/EP groups
   const LP = new Set(['BTN', 'BU', 'CO']);
   const EP = new Set(['HJ', 'MP', 'LJ', 'UTG']);
   const [rawOop, , rawIp] = matchup.split(' ');
@@ -30,10 +28,11 @@ export default function handler(req, res) {
   const safeLine = line.replace(/[^A-Z0-9\-]/gi, '');
   const filename = `${safeMatchup}_${safeLine}.json`;
 
-  const dir = path.join(process.cwd(), 'data');
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  fs.writeFileSync(path.join(dir, filename), JSON.stringify(body));
+  await put(filename, JSON.stringify(body), {
+    access: 'private',
+    addRandomSuffix: false,
+    contentType: 'application/json',
+  });
 
   return res.status(200).json({
     filename,
