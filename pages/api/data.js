@@ -1,4 +1,5 @@
 import { list } from '@vercel/blob';
+import { parseBlobResponse } from '../../lib/blobJson.mjs';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
@@ -15,5 +16,5 @@ export default async function handler(req, res) {
   const raw = await fetch(blob.url, {
     headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
   });
-  return res.status(200).json(await raw.json());
+  return res.status(200).json(await parseBlobResponse(raw));
 }

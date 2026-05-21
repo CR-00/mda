@@ -1,4 +1,5 @@
 import { list } from '@vercel/blob';
+import { parseBlobResponse } from '../../lib/blobJson.mjs';
 
 function adaptOverall(rows) {
   const overall = rows.find(r => r.metric === 'Overall');
@@ -32,9 +33,9 @@ export default async function handler(req, res) {
     if (!blob.pathname.endsWith('.json')) return;
     const lineCode = blob.pathname.slice(prefix.length, -5);
     try {
-      const raw = await (await fetch(blob.url, {
+      const raw = await parseBlobResponse(await fetch(blob.url, {
         headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
-      })).json();
+      }));
       const rows = Array.isArray(raw) ? raw : raw.data;
       if (!Array.isArray(rows)) return;
       const adapted = adaptOverall(rows);

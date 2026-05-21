@@ -36,7 +36,7 @@ describe('GET /api/data', () => {
 
   it('serves a different fixture correctly', () => {
     const r = res();
-    handler(req('GET', { matchup: 'BB_vs_LP_3bp_fish_ip', line: 'B-B' }), r);
+    handler(req('GET', { matchup: 'Blinds_vs_LP_3bp_fish_ip', line: 'B-B' }), r);
     expect(r._status).toBe(200);
     expect(r._body.data.find(row => row.metric === 'Overall')).toBeDefined();
   });

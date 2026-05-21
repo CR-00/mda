@@ -14,10 +14,19 @@ export default function UploadModal({ onClose, onSuccess }) {
   const processText = (text) => {
     try {
       const parsed = JSON.parse(text);
-      const matchup = parsed?.query?.matchups?.[0];
-      const line = parsed?.query?.line;
-      if (!matchup) throw new Error('Missing query.matchups in JSON');
-      if (!line) throw new Error('Missing query.line in JSON');
+      if (!parsed || typeof parsed !== 'object') throw new Error('Pasted text is not a JSON object');
+      if (!parsed.query) {
+        throw new Error(`No "query" key. Top-level keys found: ${Object.keys(parsed).join(', ') || '(none)'}`);
+      }
+      const matchup = parsed.query.matchups?.[0];
+      const line = parsed.query.line;
+      if (!matchup) {
+        throw new Error(
+          `query.matchups is ${JSON.stringify(parsed.query.matchups)}. ` +
+          `query keys: ${Object.keys(parsed.query).join(', ')}`
+        );
+      }
+      if (!line) throw new Error(`query.line is ${JSON.stringify(line)} (expected a string like "B")`);
       if (!Array.isArray(parsed?.data)) throw new Error('Missing data array in JSON');
       const inferredPotType = (parsed?.query?.['Pot Type']?.[0] ?? '').toLowerCase().replace(/\s+/g, '');
       setError(null);

@@ -1,5 +1,15 @@
-import { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef, useEffect, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
+
+const EVUnitCtx = createContext('bb');
+
+function fmtEV(evBB, potSize, evUnit) {
+  if (evUnit === 'pct') {
+    const v = potSize > 0 ? evBB / potSize * 100 : 0;
+    return { v, dp: 1, suffix: '%' };
+  }
+  return { v: evBB, dp: 2, suffix: ' BB' };
+}
 import { MATCHUPS, fmtCount } from '../lib/data';
 import { adaptTableData, computeBoardAdjusted } from '../lib/adaptData';
 import { getBoardTextures } from '../lib/boardTextures';
@@ -20,6 +30,15 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
   const ctx = useMemo(() => detectMode(line, hero, matchup), [line, matchup]);
   const street = ctx.street.charAt(0).toUpperCase() + ctx.street.slice(1);
 
+  const [evUnit, setEvUnit] = useState('pct');
+  useEffect(() => {
+    function onKey(e) {
+      if (e.shiftKey && e.key === 'B') setEvUnit(u => u === 'bb' ? 'pct' : 'bb');
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const boardTextures = useMemo(() => getBoardTextures(board), [board]);
 
   const realSizeData = useMemo(
@@ -27,6 +46,10 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
     [spotData]
   );
   const realRaiseData = useMemo(
+    () => Array.isArray(raiseSpotData) ? adaptTableData(raiseSpotData, 'River Bet Size') : null,
+    [raiseSpotData]
+  );
+  const realBluffRaiseData = useMemo(
     () => Array.isArray(raiseSpotData) ? adaptTableData(raiseSpotData, 'Vs. Raise Size') : null,
     [raiseSpotData]
   );
@@ -74,6 +97,7 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
   }
 
   return (
+    <EVUnitCtx.Provider value={evUnit}>
     <div className="results">
       <div className="results-head">
         <div className="rh-titleblock">
@@ -93,10 +117,11 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
         <BoardInline board={board} setBoard={setBoard} />
       </div>
 
-      <Recommendation mode={ctx.mode} data={realSizeData} raiseData={realRaiseData} />
+      <Recommendation mode={ctx.mode} data={realSizeData} raiseData={realRaiseData} bluffRaiseData={realBluffRaiseData} />
 
-      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} onSelectNext={onSelectNext} />
+      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} onSelectNext={onSelectNext} />
     </div>
+    </EVUnitCtx.Provider>
   );
 }
 
@@ -105,6 +130,7 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
 function SpotSummary({ mode, facingAction, sizeData, textureData }) {
   const avg = sizeData?.overall;
   const board = textureData?.overall;
+  const evUnit = useContext(EVUnitCtx);
   if (!avg) return null;
 
   const evKey = mode === "bet" ? "bluffEV" : "callEV";
@@ -119,7 +145,7 @@ function SpotSummary({ mode, facingAction, sizeData, textureData }) {
   return (
     <div className="spot-summary">
       {cols.map(({ label, row }) => {
-        const ev = row[evKey];
+        const { v, dp, suffix } = fmtEV(row[evKey], row.potSize, evUnit);
         return (
           <div key={label} className="ss-col">
             <div className="ss-col-label">{label}</div>
@@ -140,8 +166,8 @@ function SpotSummary({ mode, facingAction, sizeData, textureData }) {
               )}
               <div className="ss-stat ss-stat-ev">
                 <span className="ss-stat-label">{evLabel}</span>
-                <span className={"ss-stat-val " + (ev >= 0 ? "pos" : "neg")}>
-                  {ev >= 0 ? "+" : "−"}{Math.abs(ev).toFixed(1)}%
+                <span className={"ss-stat-val " + (v >= 0 ? "pos" : "neg")}>
+                  {v >= 0 ? "+" : "−"}{Math.abs(v).toFixed(dp)}{suffix}
                 </span>
               </div>
             </div>
@@ -152,20 +178,24 @@ function SpotSummary({ mode, facingAction, sizeData, textureData }) {
   );
 }
 
-function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, onSelectNext }) {
+function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData, onSelectNext }) {
   const [tab, setTab] = useState("size");
-  const showRaiseTabs = mode === "facing" && !!raiseData;
+  const showBluffVsSize = mode === "facing" && !!raiseData;
+  const showBluffBySize = mode === "facing" && !!bluffRaiseData;
   return (
     <div className="table-tabs">
       <SpotSummary mode={mode} facingAction={facingAction} sizeData={sizeData} textureData={textureData} />
       <div className="ttabs-bar">
         <button className={"ttab" + (tab === "size" ? " active" : "")} onClick={() => setTab("size")}>{mode === "facing" ? "Call EV by size" : "By size"}</button>
         <button className={"ttab" + (tab === "texture" ? " active" : "")} onClick={() => setTab("texture")}>{mode === "facing" ? "Call EV by texture" : "By texture"}</button>
-        {showRaiseTabs && (
-          <button className={"ttab" + (tab === "raise-size" ? " active" : "")} onClick={() => setTab("raise-size")}>Bluff raise EV by size</button>
+        {showBluffVsSize && (
+          <button className={"ttab" + (tab === "raise-size" ? " active" : "")} onClick={() => setTab("raise-size")}>Bluff EV vs size</button>
         )}
-        {showRaiseTabs && (
-          <button className={"ttab" + (tab === "raise-texture" ? " active" : "")} onClick={() => setTab("raise-texture")}>Bluff raise EV by texture</button>
+        {showBluffBySize && (
+          <button className={"ttab" + (tab === "bluff-raise-size" ? " active" : "")} onClick={() => setTab("bluff-raise-size")}>Bluff EV by size</button>
+        )}
+        {showBluffVsSize && (
+          <button className={"ttab" + (tab === "raise-texture" ? " active" : "")} onClick={() => setTab("raise-texture")}>Bluff EV by texture</button>
         )}
       </div>
       {tab === "size" && (
@@ -178,11 +208,14 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
           ? <BetTextureTable street={street} data={textureData} />
           : <FacingTextureTable street={street} data={textureData} onSelectNext={onSelectNext} />
       )}
-      {tab === "raise-size" && showRaiseTabs && (
-        <RaiseSizeTable street={street} data={raiseData} label="Raise Size" />
+      {tab === "raise-size" && showBluffVsSize && (
+        <RaiseSizeTable street={street} data={raiseData} label="Bet Size" />
       )}
-      {tab === "raise-texture" && showRaiseTabs && (
+      {tab === "raise-texture" && showBluffVsSize && (
         <RaiseSizeTable street={street} data={raiseTextureData} label="Texture" />
+      )}
+      {tab === "bluff-raise-size" && showBluffBySize && (
+        <RaiseSizeTable street={street} data={bluffRaiseData} label="Raise Size" />
       )}
     </div>
   );
@@ -190,7 +223,8 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
 
 // ─── Recommendation ──────────────────────────────────────────────────────────
 
-function Recommendation({ mode, data, raiseData }) {
+function Recommendation({ mode, data, raiseData, bluffRaiseData }) {
+  const evUnit = useContext(EVUnitCtx);
   if (!data) return null;
   const rows = data.rows.filter(r => r.sample >= 200);
   if (!rows.length) return null;
@@ -202,27 +236,26 @@ function Recommendation({ mode, data, raiseData }) {
 
     const bluffRows = [...rows]
       .map(r => ({ ...r, rawScore: r.next.bf - r.next.bc * r.sizeRatio }))
-      .sort((a, b) => (b.rawScore * confidence(b)) - (a.rawScore * confidence(a)))
-      .slice(0, 3);
+      .sort((a, b) => (b.rawScore * confidence(b)) - (a.rawScore * confidence(a)));
 
     const valueRows = [...rows]
       .map(r => ({ ...r, rawScore: r.next.bc * r.sizeRatio - r.next.br }))
-      .sort((a, b) => (b.rawScore * confidence(b)) - (a.rawScore * confidence(a)))
-      .slice(0, 3);
+      .sort((a, b) => (b.rawScore * confidence(b)) - (a.rawScore * confidence(a)));
 
     cards = [
-      { eyebrow: "Top bluff sizes", ranked: true, items: bluffRows.map(r => ({ label: r.label, ev: r.rawScore * 100, evPos: r.rawScore > 0 })) },
-      { eyebrow: "Top value sizes", ranked: true, items: valueRows.map(r => ({ label: r.label, ev: r.rawScore * 100, evPos: r.rawScore > 0 })) },
+      { eyebrow: "Top bluff sizes", ranked: true, items: bluffRows.map(r => ({ label: r.label, evBB: r.bluffEV, potSize: r.potSize, evPos: r.bluffEV >= 0 })) },
+      { eyebrow: "Top value sizes", ranked: true, items: valueRows.map(r => ({ label: r.label, evBB: r.rawScore * r.potSize, potSize: r.potSize, evPos: r.rawScore > 0 })) },
     ];
   } else {
     const confidence = (r) => r.sample / (r.sample + 400);
-    const raiseRows = [...(raiseData?.rows?.filter(r => r.sample >= 50) ?? [])]
-      .sort((a, b) => (b.bluffEV * confidence(b)) - (a.bluffEV * confidence(a)))
-      .slice(0, 3);
-    cards = raiseRows.length ? [{
-      eyebrow: "Top bluff-raise sizes", ranked: true,
-      items: raiseRows.map(r => ({ label: r.label, ev: r.bluffEV, evPos: r.bluffEV >= 0 })),
-    }] : [];
+    const vsRows = [...(raiseData?.rows?.filter(r => r.sample >= 50) ?? [])]
+      .sort((a, b) => (b.bluffEV * confidence(b)) - (a.bluffEV * confidence(a)));
+    const byRows = [...(bluffRaiseData?.rows?.filter(r => r.sample >= 50) ?? [])]
+      .sort((a, b) => (b.bluffEV * confidence(b)) - (a.bluffEV * confidence(a)));
+    cards = [
+      ...(vsRows.length ? [{ eyebrow: "Top sizes to bluff vs", ranked: true, items: vsRows.map(r => ({ label: r.label, evBB: r.bluffEV, potSize: r.potSize, evPos: r.bluffEV >= 0 })) }] : []),
+      ...(byRows.length ? [{ eyebrow: "Best bluff raise sizes", ranked: true, items: byRows.map(r => ({ label: r.label, evBB: r.bluffEV, potSize: r.potSize, evPos: r.bluffEV >= 0 })) }] : []),
+    ];
   }
 
   if (!cards.length) return null;
@@ -235,15 +268,18 @@ function Recommendation({ mode, data, raiseData }) {
           <div className="reco-eyebrow">{c.eyebrow}</div>
           {c.ranked ? (
             <div className="reco-ranked">
-              {c.items.map((item, j) => (
-                <div key={j} className="rr-item">
-                  <span className="rr-rank">{j + 1}</span>
-                  <span className="rr-label">{item.label}</span>
-                  <span className={"rr-ev " + (item.evPos ? "pos" : "neg")}>
-                    {item.evPos ? "+" : "−"}{Math.abs(item.ev).toFixed(1)}%
-                  </span>
-                </div>
-              ))}
+              {c.items.map((item, j) => {
+                const { v, dp, suffix } = fmtEV(item.evBB, item.potSize, evUnit);
+                return (
+                  <div key={j} className="rr-item">
+                    <span className="rr-rank">{j + 1}</span>
+                    <span className="rr-label">{item.label}</span>
+                    <span className={"rr-ev " + (item.evPos ? "pos" : "neg")}>
+                      {item.evPos ? "+" : "−"}{Math.abs(v).toFixed(dp)}{suffix}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <>
@@ -291,11 +327,13 @@ function Tooltip({ children, tip }) {
 }
 
 function BluffEVTip({ row }) {
+  const evUnit = useContext(EVUnitCtx);
   if (!row.next || !(row.sizeRatio > 0)) return null;
   const mdf = 1 / (1 + row.sizeRatio) * 100;
   const foldPct = row.next.bf * 100;
   const callPct = row.next.bc * 100;
-  const ev = (row.next.bf - row.next.bc * row.sizeRatio) * 100;
+  const evBB = (row.next.bf - row.next.bc * row.sizeRatio) * row.potSize;
+  const { v, dp, suffix } = fmtEV(evBB, row.potSize, evUnit);
   const overFolds = foldPct > (100 - mdf);
   return (
     <div className="tt-content">
@@ -306,21 +344,23 @@ function BluffEVTip({ row }) {
       </div>
       <div className="tt-sep" />
       <div className="tt-formula">{foldPct.toFixed(1)} − {callPct.toFixed(1)} × {row.sizeRatio.toFixed(2)}</div>
-      <div className={"tt-result " + (ev >= 0 ? 'pos' : 'neg')}>{ev >= 0 ? '+' : ''}{ev.toFixed(1)}% EV per bluff</div>
+      <div className={"tt-result " + (v >= 0 ? 'pos' : 'neg')}>{v >= 0 ? '+' : ''}{Math.abs(v).toFixed(dp)}{suffix} EV per bluff</div>
     </div>
   );
 }
 
 function CallEVTip({ row }) {
+  const evUnit = useContext(EVUnitCtx);
   if (!(row.sizeRatio > 0)) return null;
   const reqEq = row.sizeRatio / (1 + row.sizeRatio) * 100;
+  const { v, dp, suffix } = fmtEV(row.callEV, row.potSize, evUnit);
   return (
     <div className="tt-content">
       <div className="tt-kv"><span>Bet size</span><span>{(row.sizeRatio * 100).toFixed(0)}% pot</span></div>
       <div className="tt-kv"><span>Required equity</span><span>{reqEq.toFixed(1)}%</span></div>
       <div className="tt-sep" />
-      <div className={"tt-result " + (row.callEV >= 0 ? 'pos' : 'neg')}>
-        {row.callEV >= 0 ? '+' : ''}{row.callEV.toFixed(1)}% pot EV when calling
+      <div className={"tt-result " + (v >= 0 ? 'pos' : 'neg')}>
+        {v >= 0 ? '+' : ''}{Math.abs(v).toFixed(dp)}{suffix} EV when calling
       </div>
     </div>
   );
@@ -366,12 +406,14 @@ function NextActionCell({ next, onSelect }) {
   );
 }
 
-function EVCell({ pct }) {
-  const isPos = pct >= 0;
+function EVCell({ evBB, potSize }) {
+  const evUnit = useContext(EVUnitCtx);
+  const { v, dp, suffix } = fmtEV(evBB, potSize, evUnit);
+  const isPos = v >= 0;
   return (
     <span className={"ev-cell " + (isPos ? "pos" : "neg")}>
       <Trend delta={isPos ? 1 : -1} />
-      <span className="ev-num">{isPos ? "" : "−"}{Math.abs(pct).toFixed(1)}%</span>
+      <span className="ev-num">{isPos ? "+" : "−"}{Math.abs(v).toFixed(dp)}{suffix}</span>
     </span>
   );
 }
@@ -393,7 +435,13 @@ function sortRows(rows, sort, accessors) {
   const get = accessors[sort.col];
   return [...rows].sort((a, b) => {
     const va = get(a), vb = get(b);
-    const cmp = typeof va === 'string' ? va.localeCompare(vb) : vb - va;
+    let cmp;
+    if (typeof va === 'string') {
+      const na = parseFloat(va), nb = parseFloat(vb);
+      cmp = (!isNaN(na) && !isNaN(nb)) ? nb - na : vb.localeCompare(va);
+    } else {
+      cmp = vb - va;
+    }
     return sort.dir === 'asc' ? -cmp : cmp;
   });
 }
@@ -473,7 +521,7 @@ function BetSizeRow({ row, overall, isOverall, onSelectNext }) {
       <td>{row.next && <NextActionCell next={row.next} onSelect={handleSelect} />}</td>
       <td className="ta-r">
         <Tooltip tip={<BluffEVTip row={row} />}>
-          <EVCell pct={row.bluffEV} />
+          <EVCell evBB={row.bluffEV} potSize={row.potSize} />
         </Tooltip>
       </td>
     </tr>
@@ -625,7 +673,7 @@ function FacingRow({ row, overall, isOverall, isTexture, onSelectNext }) {
       <td><NextActionCell next={row.next} onSelect={handleSelect} /></td>
       <td className="ta-r">
         <Tooltip tip={<CallEVTip row={row} />}>
-          <EVCell pct={row.callEV} />
+          <EVCell evBB={row.callEV} potSize={row.potSize} />
         </Tooltip>
       </td>
     </tr>

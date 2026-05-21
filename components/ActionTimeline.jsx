@@ -1,4 +1,4 @@
-import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, forwardRef, useImperativeHandle } from 'react';
 import { MATCHUPS } from '../lib/data';
 
 const STREETS = ["flop", "turn", "river"];
@@ -6,7 +6,7 @@ const ACTION_LABELS = { x: "check", c: "call", f: "fold", b: "bet", r: "raise" }
 
 function validNextActions(lastAct) {
   if (lastAct === null || lastAct === "check") return ["x", "b"];
-  if (lastAct === "bet" || lastAct === "raise") return ["c", "r"];
+  if (lastAct === "bet" || lastAct === "raise") return ["c", "r", "f"];
   return [];
 }
 
@@ -58,17 +58,9 @@ function annotatePath(chips, ipPos, oopPos) {
 }
 
 
-const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, matchup, hero }, ref) {
+const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, matchup, hero, chips, setChips }, ref) {
   const m = MATCHUPS.find(x => x.id === matchup);
   const ipPos = m.ip, oopPos = m.oop;
-
-  const toChips = (actions) => actions.filter(a => !a.marker).map(a =>
-    a.action === "check" ? "x" : a.action === "call" ? "c" : a.action === "fold" ? "f" : a.action === "bet" ? "b" : "r"
-  );
-
-  const [chips, setChips] = useState(() => toChips(line));
-
-  useEffect(() => { setChips(toChips(line)); }, [matchup]);
 
   useImperativeHandle(ref, () => ({
     appendChips(newChips) {

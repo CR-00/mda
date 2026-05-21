@@ -2,10 +2,9 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/api/coverage": "pages/api/coverage.js",
-  "/api/data": "pages/api/data.js",
-  "/api/scan": "pages/api/scan.js",
-  "/": "pages/index.html",
-  "/api/upload": "pages/api/upload.js",
-  "/404": "pages/404.html"
+  "/": "pages/index.js",
+  "/exploits": "pages/exploits.js",
+  "/spots": "pages/spots.js",
+  "/api/spots": "pages/api/spots.js",
+  "/api/exploits": "pages/api/exploits.js"
 }

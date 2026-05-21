@@ -1,15 +1,22 @@
 import { useState, useEffect } from 'react';
+import { SHOW_FISH } from '../lib/flags';
 
 const IP_POSITIONS = [
   { id: "LP", label: "LP" },
   { id: "EP", label: "EP" },
   { id: "BB", label: "BB" },
 ];
-const OOP_POSITIONS = ["BB", "SB"];
 export const POT_TYPES = [
   { id: "srp", label: "SRP", full: "Single raised" },
   { id: "3bp", label: "3BP", full: "3-bet pot" },
 ];
+
+// SRP OOP is always BB; 3bp OOP vs LP/EP collapses BB+SB into 'Blinds'; BvB OOP is SB.
+export function getOopOptions(ipPos, potType) {
+  if (ipPos === 'BB') return [{ id: 'SB', label: 'SB' }];
+  if (potType === '3bp') return [{ id: 'Blinds', label: 'Blinds' }];
+  return [{ id: 'BB', label: 'BB' }];
+}
 const RANKS = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"];
 const SUITS = [
   { id: "s", glyph: "♠", name: "spades" },
@@ -20,15 +27,13 @@ const SUITS = [
 const SUIT_GLYPHS = { s: "♠", h: "♥", d: "♦", c: "♣" };
 const SLOT_LABELS = ["Flop 1", "Flop 2", "Flop 3", "Turn", "River"];
 
-export function isValidCombo(ip, oop) {
-  if (ip === 'LP' || ip === 'EP') return oop === 'BB' || oop === 'SB';
-  if (ip === 'BB') return oop === 'SB';
-  return false;
+export function isValidCombo(ip, oop, potType) {
+  return getOopOptions(ip, potType).some(o => o.id === oop);
 }
 
 const PLAYER_TYPES = [
   { id: "reg", label: "REG" },
-  { id: "fish", label: "FISH" },
+  ...(SHOW_FISH ? [{ id: "fish", label: "FISH" }] : []),
 ];
 
 export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType, setPotType, playerType, setPlayerType, hero, setHero }) {
@@ -41,10 +46,7 @@ export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType,
 
       <div className="config-section">
         <div className="config-label">Out of position</div>
-        <SegRow
-          options={OOP_POSITIONS.map(p => ({ id: p, label: p, disabled: !isValidCombo(ipPos, p) }))}
-          value={oopPos} onChange={setOopPos}
-        />
+        <SegRow options={getOopOptions(ipPos, potType)} value={oopPos} onChange={setOopPos} />
       </div>
 
       <div className="config-section">
@@ -52,10 +54,12 @@ export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType,
         <SegRow options={POT_TYPES} value={potType} onChange={setPotType} />
       </div>
 
-      <div className="config-section">
-        <div className="config-label">Player type</div>
-        <SegRow options={PLAYER_TYPES} value={playerType} onChange={setPlayerType} />
-      </div>
+      {SHOW_FISH && (
+        <div className="config-section">
+          <div className="config-label">Player type</div>
+          <SegRow options={PLAYER_TYPES} value={playerType} onChange={setPlayerType} />
+        </div>
+      )}
 
       <div className="config-section">
         <div className="config-label">PFR</div>

@@ -1,36 +1,34 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ALL_LINES } from '../lib/lines';
+import { SHOW_FISH } from '../lib/flags';
 import UploadModal from './UploadModal';
 
 const POT_LABELS = { srp: 'SRP', '3bp': '3BP' };
-const PLAYER_TYPES = ['reg', 'fish'];
+const PLAYER_TYPES = SHOW_FISH ? ['reg', 'fish'] : ['reg'];
 
 const GROUP_MATCHUPS = [
   { id: 'LP_vs_BB_srp', label: 'LP vs BB', potType: 'srp', base: 'BB_vs_LP' },
   { id: 'EP_vs_BB_srp', label: 'EP vs BB', potType: 'srp', base: 'BB_vs_EP' },
-  { id: 'BB_vs_SB_srp', label: 'BB vs SB', potType: 'srp', base: 'SB_vs_BB' },
-  { id: 'LP_vs_BB_3bp', label: 'LP vs BB', potType: '3bp', base: 'BB_vs_LP' },
-  { id: 'LP_vs_SB_3bp', label: 'LP vs SB', potType: '3bp', base: 'SB_vs_LP' },
-  { id: 'EP_vs_BB_3bp', label: 'EP vs BB', potType: '3bp', base: 'BB_vs_EP' },
-  { id: 'EP_vs_SB_3bp', label: 'EP vs SB', potType: '3bp', base: 'SB_vs_EP' },
+  { id: 'BB_vs_SB_srp', label: 'BB vs SB', potType: 'srp', base: 'SB_vs_BB', oopIsPfr: true },
+  { id: 'LP_vs_Blinds_3bp', label: 'LP vs Blinds', potType: '3bp', base: 'Blinds_vs_LP', oopIsPfr: true },
+  { id: 'EP_vs_Blinds_3bp', label: 'EP vs Blinds', potType: '3bp', base: 'Blinds_vs_EP', oopIsPfr: true },
   { id: 'LP_vs_EP_3bp', label: 'LP vs EP', potType: '3bp', base: 'EP_vs_LP' },
   { id: 'LP_vs_LP_3bp', label: 'LP vs LP', potType: '3bp', base: 'LP_vs_LP' },
   { id: 'BB_vs_SB_3bp', label: 'BB vs SB', potType: '3bp', base: 'SB_vs_BB' },
 ];
 
-// Segment starting with X then another letter = OOP-only code (check-then-act)
-const isOopLine = (line) => line.split('-').some(seg => /^X[A-Z]/.test(seg));
+// IP acts last each street, so it never checks-then-acts within a street.
+const isIpLine  = (line) => !line.split('-').some(seg => /^X[A-Z]/.test(seg));
+// OOP acts first each street, so every street segment starts with X (check) or B (bet).
+const isOopLine = (line) => line.split('-').every(seg => seg[0] === 'X' || seg[0] === 'B');
 
-const IP_LINES = {
-  flop:  ALL_LINES.flop.filter(l => !isOopLine(l)),
-  turn:  ALL_LINES.turn.filter(l => !isOopLine(l)),
-  river: ALL_LINES.river.filter(l => !isOopLine(l)),
-};
-const OOP_LINES = {
-  flop:  ALL_LINES.flop.filter(isOopLine),
-  turn:  ALL_LINES.turn.filter(isOopLine),
-  river: ALL_LINES.river.filter(isOopLine),
-};
+const filterStreets = (pred) => ({
+  flop:  ALL_LINES.flop.filter(pred),
+  turn:  ALL_LINES.turn.filter(pred),
+  river: ALL_LINES.river.filter(pred),
+});
+const IP_LINES  = filterStreets(isIpLine);
+const OOP_LINES = filterStreets(isOopLine);
 const IP_TOTAL  = Object.values(IP_LINES).flat().length;
 const OOP_TOTAL = Object.values(OOP_LINES).flat().length;
 
@@ -42,6 +40,7 @@ function buildEntries() {
       label:       gm.label,
       potType:     gm.potType,
       playerType,
+      oopIsPfr:    !!gm.oopIsPfr,
       ipDataKey:   `${gm.base}_${gm.potType}_${playerType}_ip`,
       oopDataKey:  `${gm.base}_${gm.potType}_${playerType}_oop`,
     }))
@@ -129,6 +128,14 @@ export default function CoverageModal({ onClose }) {
   const ipUploadedSet  = new Set(uploads && selInfo ? (uploads[selInfo.ipDataKey]?.lines  ?? []) : []);
   const oopUploadedSet = new Set(uploads && selInfo ? (uploads[selInfo.oopDataKey]?.lines ?? []) : []);
 
+  // Sections are keyed by position (which perspective file the data lives in),
+  // labelled by role. PFR shown first.
+  const sections = selInfo ? (() => {
+    const oop = { key: 'oop', heading: selInfo.oopIsPfr ? 'OOP (PFR)' : 'OOP (PFC)', linesByStreet: OOP_LINES, uploadedSet: oopUploadedSet, total: OOP_TOTAL };
+    const ip  = { key: 'ip',  heading: selInfo.oopIsPfr ? 'IP (PFC)'  : 'IP (PFR)',  linesByStreet: IP_LINES,  uploadedSet: ipUploadedSet,  total: IP_TOTAL };
+    return selInfo.oopIsPfr ? [oop, ip] : [ip, oop];
+  })() : [];
+
   const totalUploaded = uploads
     ? ENTRIES.reduce((sum, e) =>
         sum +
@@ -158,17 +165,19 @@ export default function CoverageModal({ onClose }) {
                 </button>
               ))}
             </div>
-            <div className="cov-pot-filter">
-              {['all', 'reg', 'fish'].map(v => (
-                <button
-                  key={v}
-                  className={'cov-pf-btn' + (playerFilter === v ? ' active' : '')}
-                  onClick={() => setPlayerFilter(v)}
-                >
-                  {v === 'all' ? 'All' : v.charAt(0).toUpperCase() + v.slice(1)}
-                </button>
-              ))}
-            </div>
+            {SHOW_FISH && (
+              <div className="cov-pot-filter">
+                {['all', 'reg', 'fish'].map(v => (
+                  <button
+                    key={v}
+                    className={'cov-pf-btn' + (playerFilter === v ? ' active' : '')}
+                    onClick={() => setPlayerFilter(v)}
+                  >
+                    {v === 'all' ? 'All' : v.charAt(0).toUpperCase() + v.slice(1)}
+                  </button>
+                ))}
+              </div>
+            )}
             <button className="cov-import-btn" onClick={() => setUploadOpen(true)}>Import</button>
             <button className="cp-close" onClick={onClose}>esc</button>
           </div>
@@ -223,22 +232,17 @@ export default function CoverageModal({ onClose }) {
               )}
               {selInfo && (
                 <>
-                  <PillSection
-                    heading="IP (PFR)"
-                    linesByStreet={IP_LINES}
-                    uploadedSet={ipUploadedSet}
-                    total={IP_TOTAL}
-                    copiedLine={copiedLine}
-                    onCopy={copyLine}
-                  />
-                  <PillSection
-                    heading="OOP (PFC)"
-                    linesByStreet={OOP_LINES}
-                    uploadedSet={oopUploadedSet}
-                    total={OOP_TOTAL}
-                    copiedLine={copiedLine}
-                    onCopy={copyLine}
-                  />
+                  {sections.map(s => (
+                    <PillSection
+                      key={s.key}
+                      heading={s.heading}
+                      linesByStreet={s.linesByStreet}
+                      uploadedSet={s.uploadedSet}
+                      total={s.total}
+                      copiedLine={copiedLine}
+                      onCopy={copyLine}
+                    />
+                  ))}
                 </>
               )}
             </div>

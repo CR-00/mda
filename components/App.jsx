@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import ConfigBar, { POT_TYPES, isValidCombo } from './ConfigBar';
+import ConfigBar, { POT_TYPES, isValidCombo, getOopOptions } from './ConfigBar';
 import ActionTimeline from './ActionTimeline';
 import ResultsPane from './ResultsPane';
 import UploadModal from './UploadModal';
@@ -8,6 +8,23 @@ import LineExplorer from './LineExplorer';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle } from './TweaksPanel';
 import { MATCHUPS, FILTERS } from '../lib/data';
 import { deriveQueryLine, matchupToKey } from '../lib/spotMatch';
+import { SHOW_FISH } from '../lib/flags';
+
+const DEFAULT_BOARD = [null, null, null, null, null];
+
+function parseBoard(str) {
+  if (!str) return DEFAULT_BOARD;
+  const cards = [];
+  for (let i = 0; i + 1 < str.length; i += 2) {
+    cards.push({ rank: str[i], suit: str[i + 1] });
+  }
+  while (cards.length < 5) cards.push(null);
+  return cards;
+}
+
+function serializeBoard(board) {
+  return board.filter(Boolean).map(c => c.rank + c.suit).join('');
+}
 
 const TWEAK_DEFAULTS = {
   density: "compact",
@@ -27,6 +44,8 @@ function BurgerMenu({ view, onSetView }) {
   const VIEWS = [
     { id: 'analyzer', label: 'Analyzer' },
     { id: 'explorer', label: 'Line Explorer' },
+    { id: 'spots', label: 'Spot Browser', href: '/spots' },
+    { id: 'exploits', label: 'Exploits', href: '/exploits' },
   ];
   return (
     <>
@@ -49,7 +68,16 @@ function BurgerMenu({ view, onSetView }) {
           <button className="drawer-close" onClick={() => setOpen(false)}>✕</button>
         </div>
         <nav className="drawer-nav">
-          {VIEWS.map(v => (
+          {VIEWS.map(v => v.href ? (
+            <a
+              key={v.id}
+              className="drawer-item"
+              href={v.href}
+              onClick={() => setOpen(false)}
+            >
+              {v.label}
+            </a>
+          ) : (
             <button
               key={v.id}
               className={`drawer-item${view === v.id ? ' active' : ''}`}
@@ -71,7 +99,7 @@ export default function App() {
   const [potType, setPotType] = useState("srp");
   const [playerType, setPlayerType] = useState("reg");
   const [hero, setHero] = useState("LP");
-  const [stack, setStack] = useState("100bb");
+  const [chips, setChips] = useState([]);
 
   const matchup = `${ipPos.toLowerCase()}_${oopPos.toLowerCase()}_${potType}`;
   if (!MATCHUPS.find(x => x.id === matchup)) {
@@ -87,13 +115,7 @@ export default function App() {
   }
 
   const [line, setLine] = useState([]);
-  const [board, setBoard] = useState([
-    { rank: "K", suit: "s" },
-    { rank: "8", suit: "h" },
-    { rank: "4", suit: "d" },
-    { rank: "Q", suit: "c" },
-    null,
-  ]);
+  const [board, setBoard] = useState(DEFAULT_BOARD);
 
   const autoFilters = useMemo(() => deriveAutoFilters(board), [board]);
   const filters = useMemo(() => ({ texture: autoFilters.map(f => f.id), pool: [] }), [autoFilters]);
@@ -112,16 +134,35 @@ export default function App() {
   const perspective = hero === ipPos ? 'ip' : 'oop';
   const queryLine = deriveQueryLine(nonMarkerLine, hero);
   const matchupKey = matchupToKey(oopPos, ipPos, potType, playerType, perspective);
+  const lastNonMarkerAction = nonMarkerLine.length > 0 ? nonMarkerLine[nonMarkerLine.length - 1].action : null;
+  const lastNonMarkerActor = nonMarkerLine.length > 0 ? nonMarkerLine[nonMarkerLine.length - 1].actor : null;
+  const isFacing = lastNonMarkerAction === "bet" || lastNonMarkerAction === "raise";
+
+  // When facing, probe-size data (catchVevPct) lives in the villain's perspective file on
+  // the bet rows — not in hero's file. Derive villain's matchup key and query line.
+  const villainPos = hero === ipPos ? oopPos : ipPos;
+  const villainQueryLine = deriveQueryLine(nonMarkerLine, villainPos);
+  const villainMatchupKey = matchupToKey(oopPos, ipPos, potType, playerType, hero === ipPos ? 'oop' : 'ip');
+
+  // True when villain made the last bet/raise (hero is the one facing).
+  // False when hero raised — in that case villain faces us, so data lives in hero's IP file.
+  const villainIsAggressor = isFacing && lastNonMarkerActor === villainPos;
 
   useEffect(() => {
-    if (!isValidCombo(ipPos, oopPos)) {
-      if (ipPos === 'BB') setOopPos('SB');
+    if (!isValidCombo(ipPos, oopPos, potType)) {
+      setOopPos(getOopOptions(ipPos, potType)[0].id);
     }
-  }, [ipPos]);
+  }, [ipPos, potType]);
 
   useEffect(() => {
-    if (hero !== ipPos && hero !== oopPos) setHero(ipPos);
-  }, [ipPos, oopPos]);
+    // OOP is PFR when: BvB SRP (SB opened) or 3bp with Blinds OOP (blind 3-bet).
+    const oopIsPfr = (ipPos === 'BB' && potType === 'srp') || (potType === '3bp' && oopPos === 'Blinds');
+    if (oopIsPfr) {
+      setHero(oopPos);
+    } else if (hero !== ipPos && hero !== oopPos) {
+      setHero(ipPos);
+    }
+  }, [ipPos, oopPos, potType]);
 
   useEffect(() => {
     if (!queryLine) {
@@ -133,11 +174,15 @@ export default function App() {
     setSpotData(undefined);
     setRaiseSpotData(undefined);
 
-    const candidates = [queryLine, ...['B', 'X', 'C', 'F', 'R'].map(s => `${queryLine}-${s}`)];
+    // When villain bet/raised (hero is facing): use villain's file.
+    // When hero raised (villain is facing): use hero's file — raise data lives in hero's IP file.
+    const fetchKey = villainIsAggressor ? villainMatchupKey : matchupKey;
+    const fetchLine = villainIsAggressor ? villainQueryLine : queryLine;
+    const candidates = [fetchLine, ...['B', 'X', 'C', 'F', 'R'].map(s => `${fetchLine}-${s}`)];
 
     async function tryInOrder() {
       for (const candidate of candidates) {
-        const r = await fetch(`/api/data?matchup=${encodeURIComponent(matchupKey)}&line=${encodeURIComponent(candidate)}`);
+        const r = await fetch(`/api/data?matchup=${encodeURIComponent(fetchKey)}&line=${encodeURIComponent(candidate)}`);
         if (r.ok) {
           const d = await r.json();
           if (!cancelled) setSpotData(Array.isArray(d?.data) ? d.data : null);
@@ -148,8 +193,11 @@ export default function App() {
     }
 
     async function fetchRaiseData() {
-      const raiseKey = queryLine + 'F';
-      const r = await fetch(`/api/data?matchup=${encodeURIComponent(matchupKey)}&line=${encodeURIComponent(raiseKey)}`);
+      // Bluff EV data always lives in villain's fold file:
+      // bluffVevPct on villain's fold rows = hero's raise EV by villain's bet size
+      const foldKey = villainQueryLine + 'F';
+      const foldMatchupKey = villainMatchupKey;
+      const r = await fetch(`/api/data?matchup=${encodeURIComponent(foldMatchupKey)}&line=${encodeURIComponent(foldKey)}`);
       if (r.ok) {
         const d = await r.json();
         if (!cancelled) setRaiseSpotData(Array.isArray(d?.data) ? d.data : null);
@@ -161,7 +209,33 @@ export default function App() {
     tryInOrder().catch(() => { if (!cancelled) setSpotData(null); });
     fetchRaiseData().catch(() => { if (!cancelled) setRaiseSpotData(null); });
     return () => { cancelled = true; };
-  }, [matchupKey, queryLine, fetchSeq]);
+  }, [matchupKey, queryLine, villainMatchupKey, villainQueryLine, isFacing, villainIsAggressor, fetchSeq]);
+
+  // Read state from URL on mount
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('ip')) setIpPos(p.get('ip'));
+    if (p.get('oop')) setOopPos(p.get('oop'));
+    if (p.get('pot')) setPotType(p.get('pot'));
+    if (p.get('player')) setPlayerType(SHOW_FISH ? p.get('player') : 'reg');
+    if (p.get('hero')) setHero(p.get('hero'));
+    if (p.get('line')) setChips(p.get('line').split(''));
+    if (p.get('board')) setBoard(parseBoard(p.get('board')));
+  }, []);
+
+  // Write state to URL whenever it changes
+  useEffect(() => {
+    const p = new URLSearchParams();
+    p.set('ip', ipPos);
+    p.set('oop', oopPos);
+    p.set('pot', potType);
+    p.set('player', playerType);
+    p.set('hero', hero);
+    if (chips.length) p.set('line', chips.join(''));
+    const boardStr = serializeBoard(board);
+    if (boardStr) p.set('board', boardStr);
+    window.history.replaceState(null, '', '?' + p.toString());
+  }, [ipPos, oopPos, potType, playerType, hero, chips, board]);
 
   const handleUploadSuccess = () => setFetchSeq(s => s + 1);
 
@@ -189,6 +263,7 @@ export default function App() {
                 line={line} setLine={setLine}
                 matchup={matchup} hero={hero}
                 board={board} setBoard={setBoard}
+                chips={chips} setChips={setChips}
               />
             </section>
 
@@ -212,7 +287,7 @@ export default function App() {
                 spotData={spotData}
                 raiseSpotData={raiseSpotData}
                 onUpload={() => setUploadOpen(true)}
-                onSelectNext={(chips) => timelineRef.current?.appendChips(chips)}
+                onSelectNext={(nextChips) => timelineRef.current?.appendChips(nextChips)}
               />
             )}
 

@@ -8,7 +8,8 @@
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "migrate": "node --env-file=.env.local scripts/migrate-to-blob.mjs"
+    "migrate": "node --env-file=.env.local scripts/migrate-to-blob.mjs",
+    "recompress": "node --env-file=.env.local scripts/recompress-blobs.mjs"
   },
   "dependencies": {
     "@vercel/blob": "^2.3.3",

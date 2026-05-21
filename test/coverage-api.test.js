@@ -31,7 +31,7 @@ describe('GET /api/coverage', () => {
     handler(req(), r);
     const { uploads } = r._body;
     expect(uploads).toHaveProperty('BB_vs_LP_srp_reg_ip');
-    expect(uploads).toHaveProperty('BB_vs_LP_3bp_fish_ip');
+    expect(uploads).toHaveProperty('Blinds_vs_LP_3bp_fish_ip');
   });
 
   it('collects all lines for a matchup', () => {
@@ -59,7 +59,7 @@ describe('GET /api/coverage', () => {
     handler(req(), r);
     const { uploads } = r._body;
     expect(uploads['BB_vs_LP_srp_reg_ip']?.lines).not.toContain('B-B');
-    expect(uploads['BB_vs_LP_3bp_fish_ip']?.lines).toContain('B-B');
+    expect(uploads['Blinds_vs_LP_3bp_fish_ip']?.lines).toContain('B-B');
   });
 
   it('returns 405 for non-GET', () => {

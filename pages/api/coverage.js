@@ -1,6 +1,6 @@
 import { list } from '@vercel/blob';
 
-const FILE_RE = /^([A-Z]+)_vs_([A-Z]+)_([a-z0-9]+)_([a-z]+)_(ip|oop)_(.+)\.json$/;
+const FILE_RE = /^([A-Za-z]+)_vs_([A-Za-z]+)_([a-z0-9]+)_([a-z]+)_(ip|oop)_(.+)\.json$/;
 
 async function listAll() {
   const blobs = [];

@@ -13,6 +13,7 @@ for (const filename of files) {
   await put(filename, content, {
     access: 'private',
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: 'application/json',
   });
   console.log(`  ✓ ${filename}`);
