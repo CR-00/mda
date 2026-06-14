@@ -1,0 +1,35 @@
+{
+  "_comment": "Deterministic fixture for a bet line. Pot=10 BB throughout, so EV numbers are easy to verify by hand.",
+  "data": [
+    {
+      "metric": "Overall", "value": "Average", "action": "B",
+      "hits": 200, "opps": 400, "freq": 0.5, "pctPot": 0.5, "pot": 10,
+      "nextActions": { "BF": 120, "BC": 60, "BR": 20 }
+    },
+    {
+      "metric": "Size", "value": "Overall", "action": "B",
+      "hits": 200, "opps": 400, "freq": 0.5, "pctPot": 0.5, "pot": 10,
+      "nextActions": { "BF": 120, "BC": 60, "BR": 20 }
+    },
+    {
+      "metric": "Size", "value": "33%", "action": "B",
+      "hits": 80, "opps": 180, "freq": 0.44, "pctPot": 0.33, "pot": 10,
+      "nextActions": { "BF": 50, "BC": 25, "BR": 5 }
+    },
+    {
+      "metric": "Size", "value": "75%", "action": "B",
+      "hits": 120, "opps": 220, "freq": 0.55, "pctPot": 0.75, "pot": 10,
+      "nextActions": { "BF": 70, "BC": 35, "BR": 15 }
+    },
+    {
+      "metric": "Texture", "value": "High card", "action": "B",
+      "hits": 140, "opps": 200, "freq": 0.7, "pctPot": 0.6, "pot": 10,
+      "nextActions": { "BF": 90, "BC": 40, "BR": 10 }
+    },
+    {
+      "metric": "Texture", "value": "Low card", "action": "B",
+      "hits": 60, "opps": 200, "freq": 0.3, "pctPot": 0.4, "pot": 10,
+      "nextActions": { "BF": 30, "BC": 20, "BR": 10 }
+    }
+  ]
+}

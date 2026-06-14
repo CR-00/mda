@@ -1,10 +1,17 @@
 {
+  "/api/coverage": "pages/api/coverage.js",
+  "/api/data": "pages/api/data.js",
+  "/api/exploits": "pages/api/exploits.js",
+  "/api/scan": "pages/api/scan.js",
+  "/api/summary": "pages/api/summary.js",
+  "/exploits": "pages/exploits.html",
+  "/": "pages/index.html",
+  "/spots": "pages/spots.html",
+  "/summary": "pages/summary.html",
+  "/_document": "pages/_document.js",
+  "/api/spots": "pages/api/spots.js",
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
-  "/_document": "pages/_document.js",
-  "/": "pages/index.js",
-  "/exploits": "pages/exploits.js",
-  "/spots": "pages/spots.js",
-  "/api/spots": "pages/api/spots.js",
-  "/api/exploits": "pages/api/exploits.js"
+  "/api/upload": "pages/api/upload.js",
+  "/404": "pages/404.html"
 }

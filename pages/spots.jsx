@@ -1,10 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-
-const BUCKET = 'BB_vs_LP_srp_reg';
-const PERSPECTIVES = [
-  { id: 'ip',  label: 'IP (LP open)' },
-  { id: 'oop', label: 'OOP (BB call)' },
-];
+import { STRATEGY_BUCKETS, DEFAULT_BUCKET, bucketMeta } from '../lib/strategyBuckets';
 const STREETS = [
   { id: 'flop',  label: 'Flop' },
   { id: 'turn',  label: 'Turn' },
@@ -55,6 +50,18 @@ function multistreetBadge(spot) {
   return null;
 }
 
+// For turn/river spots the flop-rooted multistreet artifact doesn't apply;
+// continuation_hint flags a +EV next-street barrel for the spot's own line.
+function continuationBadge(spot) {
+  const c = spot.continuation_hint;
+  if (!c) return null;
+  return (
+    <span className="sp-pill sp-pill-chain" title={`next-street barrel EV ${fmt(c.ev_bb)} bb (${c.conf})`}>
+      {c.label} (+{fmt(c.ev_bb)} bb)
+    </span>
+  );
+}
+
 function ConfDot({ confidence }) {
   return <span className={`sp-conf sp-conf-${confidence}`} title={`confidence: ${confidence}`}>●</span>;
 }
@@ -80,6 +87,7 @@ function SpotCard({ spot }) {
         <div className="sp-head-right">
           {actionPill(spot.recommendation)}
           {multistreetBadge(spot)}
+          {continuationBadge(spot)}
           <ConfDot confidence={spot.confidence} />
         </div>
       </div>
@@ -169,18 +177,25 @@ function DefenseCard({ def }) {
 }
 
 export default function SpotsPage() {
+  const [bucket, setBucket] = useState(DEFAULT_BUCKET);
   const [perspective, setPerspective] = useState('ip');
   const [street, setStreet] = useState('flop');
   const [doc, setDoc] = useState(null);
   const [error, setError] = useState(null);
 
+  const meta = bucketMeta(bucket);
+  const perspectives = [
+    { id: 'ip',  label: `IP · ${meta.ip}` },
+    { id: 'oop', label: `OOP · ${meta.oop}` },
+  ];
+
   useEffect(() => {
     setDoc(null); setError(null);
-    fetch(`/api/spots?bucket=${BUCKET}&perspective=${perspective}`)
+    fetch(`/api/spots?bucket=${encodeURIComponent(bucket)}&perspective=${perspective}`)
       .then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
       .then(setDoc)
       .catch(e => setError(String(e)));
-  }, [perspective]);
+  }, [bucket, perspective]);
 
   const spotsByStreet = useMemo(() => {
     const groups = { flop: [], turn: [], river: [] };
@@ -195,12 +210,17 @@ export default function SpotsPage() {
   return (
     <div className="sp-page">
       <header className="sp-head">
-        <div className="sp-title"><span className="sp-mark">◎</span> Spot Browser <span className="sp-bucket">{BUCKET}</span></div>
-        <a className="sp-home" href="/">← analyzer</a>
+        <div className="sp-title"><span className="sp-mark">◎</span> Spot Browser</div>
+        <div className="sp-head-right">
+          <select className="sp-bucket-select" value={bucket} onChange={e => setBucket(e.target.value)} title="strategy bucket">
+            {STRATEGY_BUCKETS.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+          </select>
+          <a className="sp-home" href="/">← analyzer</a>
+        </div>
       </header>
 
       <div className="sp-tabs">
-        {PERSPECTIVES.map(p => (
+        {perspectives.map(p => (
           <button
             key={p.id}
             className={`sp-tab${perspective === p.id ? ' active' : ''}`}

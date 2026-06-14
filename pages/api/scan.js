@@ -1,7 +1,7 @@
 import { list } from '@vercel/blob';
 import { parseBlobResponse } from '../../lib/blobJson.mjs';
 
-function adaptOverall(rows) {
+export function adaptOverall(rows) {
   const overall = rows.find(r => r.metric === 'Overall');
   if (!overall) return null;
   const sizeRatio = overall.pctPot ?? 0;

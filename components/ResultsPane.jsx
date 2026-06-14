@@ -45,10 +45,14 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
     () => Array.isArray(spotData) ? adaptTableData(spotData, 'Size') : null,
     [spotData]
   );
-  const realRaiseData = useMemo(
-    () => Array.isArray(raiseSpotData) ? adaptTableData(raiseSpotData, 'River Bet Size') : null,
-    [raiseSpotData]
-  );
+  const realRaiseData = useMemo(() => {
+    if (!Array.isArray(raiseSpotData)) return null;
+    // Data files have separate 'Flop Bet Size' / 'Turn Bet Size' / 'River Bet Size'
+    // metrics. Pick the one matching the current street, otherwise the rows are
+    // just the placeholder 'Check' value for streets that haven't been bet on.
+    const metric = ctx.street.charAt(0).toUpperCase() + ctx.street.slice(1) + ' Bet Size';
+    return adaptTableData(raiseSpotData, metric);
+  }, [raiseSpotData, ctx.street]);
   const realBluffRaiseData = useMemo(
     () => Array.isArray(raiseSpotData) ? adaptTableData(raiseSpotData, 'Vs. Raise Size') : null,
     [raiseSpotData]

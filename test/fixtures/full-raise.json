@@ -1,0 +1,71 @@
+{
+  "_comment": "Villain's fold-file raise data. Used for Bluff EV vs/by size when facing. bluffVev is already BB.",
+  "data": [
+    {
+      "metric": "Overall", "value": "Average", "action": "F",
+      "hits": 60, "opps": 180, "freq": 0.33, "pctPot": 0.5, "pot": 10,
+      "bluffVev": 2.5,
+      "nextActions": {}
+    },
+    {
+      "metric": "Vs. Raise Size", "value": "Overall", "action": "F",
+      "hits": 60, "opps": 180, "freq": 0.33, "pctPot": 0.5, "pot": 10,
+      "bluffVev": 2.5,
+      "nextActions": {}
+    },
+    {
+      "metric": "Vs. Raise Size", "value": "2.5x", "action": "F",
+      "hits": 30, "opps": 90, "freq": 0.33, "pctPot": 0.5, "pot": 10,
+      "bluffVev": 1.5,
+      "nextActions": {}
+    },
+    {
+      "metric": "Vs. Raise Size", "value": "3.0x", "action": "F",
+      "hits": 30, "opps": 90, "freq": 0.33, "pctPot": 0.5, "pot": 10,
+      "bluffVev": -0.5,
+      "nextActions": {}
+    },
+    {
+      "metric": "Flop Bet Size", "value": "Overall", "action": "F",
+      "hits": 60, "opps": 180, "freq": 0.33, "pctPot": 0.5, "pot": 10,
+      "bluffVev": 2.5,
+      "nextActions": {}
+    },
+    {
+      "metric": "Flop Bet Size", "value": "33%", "action": "F",
+      "hits": 25, "opps": 80, "freq": 0.3125, "pctPot": 0.33, "pot": 10,
+      "bluffVev": 1.0,
+      "nextActions": {}
+    },
+    {
+      "metric": "Turn Bet Size", "value": "Overall", "action": "F",
+      "hits": 40, "opps": 100, "freq": 0.4, "pctPot": 0.66, "pot": 22,
+      "bluffVev": 3.2,
+      "nextActions": {}
+    },
+    {
+      "metric": "Turn Bet Size", "value": "50%", "action": "F",
+      "hits": 15, "opps": 50, "freq": 0.3, "pctPot": 0.5, "pot": 22,
+      "bluffVev": 2.1,
+      "nextActions": {}
+    },
+    {
+      "metric": "Turn Bet Size", "value": "75%", "action": "F",
+      "hits": 25, "opps": 50, "freq": 0.5, "pctPot": 0.75, "pot": 22,
+      "bluffVev": 4.0,
+      "nextActions": {}
+    },
+    {
+      "metric": "River Bet Size", "value": "Check", "action": "F",
+      "hits": 60, "opps": 180, "freq": 0.33, "pctPot": 0, "pot": 10,
+      "bluffVev": 0,
+      "nextActions": {}
+    },
+    {
+      "metric": "Texture", "value": "High card", "action": "F",
+      "hits": 40, "opps": 120, "freq": 0.33, "pctPot": 0.55, "pot": 10,
+      "bluffVev": 1.8,
+      "nextActions": {}
+    }
+  ]
+}

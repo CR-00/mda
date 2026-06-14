@@ -1,0 +1,35 @@
+{
+  "_comment": "Deterministic facing fixture (bet rows hero is FACING). callEV comes from catchVevPct * pot. catchVevPct=0.1, pot=10 => callEV = 1.0 BB.",
+  "data": [
+    {
+      "metric": "Overall", "value": "Average", "action": "B",
+      "hits": 180, "opps": 360, "freq": 0.5, "pctPot": 0.5, "pot": 10,
+      "catchVevPct": 0.1,
+      "nextActions": { "BF": 100, "BC": 60, "BR": 20 }
+    },
+    {
+      "metric": "Size", "value": "Overall", "action": "B",
+      "hits": 180, "opps": 360, "freq": 0.5, "pctPot": 0.5, "pot": 10,
+      "catchVevPct": 0.1,
+      "nextActions": { "BF": 100, "BC": 60, "BR": 20 }
+    },
+    {
+      "metric": "Size", "value": "33%", "action": "B",
+      "hits": 90, "opps": 180, "freq": 0.5, "pctPot": 0.33, "pot": 10,
+      "catchVevPct": 0.2,
+      "nextActions": { "BF": 60, "BC": 25, "BR": 5 }
+    },
+    {
+      "metric": "Size", "value": "75%", "action": "B",
+      "hits": 90, "opps": 180, "freq": 0.5, "pctPot": 0.75, "pot": 10,
+      "catchVevPct": 0,
+      "nextActions": { "BF": 40, "BC": 35, "BR": 15 }
+    },
+    {
+      "metric": "Texture", "value": "High card", "action": "B",
+      "hits": 120, "opps": 200, "freq": 0.6, "pctPot": 0.55, "pot": 10,
+      "catchVevPct": 0.15,
+      "nextActions": { "BF": 70, "BC": 40, "BR": 10 }
+    }
+  ]
+}

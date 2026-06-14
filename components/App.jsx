@@ -46,6 +46,7 @@ function BurgerMenu({ view, onSetView }) {
     { id: 'explorer', label: 'Line Explorer' },
     { id: 'spots', label: 'Spot Browser', href: '/spots' },
     { id: 'exploits', label: 'Exploits', href: '/exploits' },
+    { id: 'summary', label: 'Strategy Summary', href: '/summary' },
   ];
   return (
     <>
@@ -147,6 +148,33 @@ export default function App() {
   // True when villain made the last bet/raise (hero is the one facing).
   // False when hero raised — in that case villain faces us, so data lives in hero's IP file.
   const villainIsAggressor = isFacing && lastNonMarkerActor === villainPos;
+  const heroIsAggressor    = isFacing && lastNonMarkerActor === hero;
+
+  // Speculative routing when there's no bet outstanding — fetch the *would-be
+  // bet* file so bluff-EV data is visible without committing to an action.
+  // Two ways to land on a bet/check frontier:
+  //   1. The opponent just checked, next-to-act is on bet/check decision.
+  //   2. A call ended the street, next-to-act is OOP on the new street.
+  // The "next-to-act" is hero or villain depending on perspective.
+  const heroIsOop = hero === oopPos;
+  const heroOnCheckBetFrontier =
+    (lastNonMarkerAction === 'check' && lastNonMarkerActor !== hero) ||
+    (lastNonMarkerAction === 'call'  && heroIsOop);
+  const villainOnCheckBetFrontier =
+    (lastNonMarkerAction === 'check' && lastNonMarkerActor === hero) ||
+    (lastNonMarkerAction === 'call'  && !heroIsOop);
+
+  const speculativeLine = heroOnCheckBetFrontier
+    ? (queryLine ? queryLine + '-B' : 'B')
+    : queryLine;
+  const villainSpeculativeLine = villainOnCheckBetFrontier
+    ? (villainQueryLine ? villainQueryLine + '-B' : 'B')
+    : villainQueryLine;
+
+  // Single source of truth for the line we'll fetch. Empty → nothing to render.
+  const effectiveFetchLine = villainIsAggressor
+    ? villainQueryLine
+    : (villainOnCheckBetFrontier ? villainSpeculativeLine : speculativeLine);
 
   useEffect(() => {
     if (!isValidCombo(ipPos, oopPos, potType)) {
@@ -165,7 +193,7 @@ export default function App() {
   }, [ipPos, oopPos, potType]);
 
   useEffect(() => {
-    if (!queryLine) {
+    if (!effectiveFetchLine) {
       setSpotData(undefined);
       setRaiseSpotData(undefined);
       return;
@@ -176,8 +204,14 @@ export default function App() {
 
     // When villain bet/raised (hero is facing): use villain's file.
     // When hero raised (villain is facing): use hero's file — raise data lives in hero's IP file.
-    const fetchKey = villainIsAggressor ? villainMatchupKey : matchupKey;
-    const fetchLine = villainIsAggressor ? villainQueryLine : queryLine;
+    // When the line just had a check, we're speculating about the next bet —
+    // route to whichever side is on the bet/check frontier.
+    const fetchKey = (villainIsAggressor || villainOnCheckBetFrontier) ? villainMatchupKey : matchupKey;
+    const fetchLine = effectiveFetchLine;
+    // Try the speculative line first, then deeper extensions. Don't fall back to
+    // the *upstream* (non-speculative) line — its nextActions are semantically
+    // different (next-street actions, not response-to-bet), and normalizeNext's
+    // suffix-based key matching would surface misleading "fold" rates.
     const candidates = [fetchLine, ...['B', 'X', 'C', 'F', 'R'].map(s => `${fetchLine}-${s}`)];
 
     async function tryInOrder() {
@@ -193,10 +227,18 @@ export default function App() {
     }
 
     async function fetchRaiseData() {
-      // Bluff EV data always lives in villain's fold file:
-      // bluffVevPct on villain's fold rows = hero's raise EV by villain's bet size
-      const foldKey = villainQueryLine + 'F';
-      const foldMatchupKey = villainMatchupKey;
+      // bluffVev on a fold row = the *other* player's raise EV. So route to the
+      // file of whoever might raise next:
+      //   hero facing villain's bet   → villain's fold file → hero's raise EV
+      //   villain facing hero's bet   → hero's fold file    → villain's raise EV
+      //   speculative bets follow the same pattern, swapping queryLine for the
+      //   speculative '…-B' line so the fold sits under the hypothetical bet.
+      const heroSide = heroIsAggressor || heroOnCheckBetFrontier;
+      const heroFoldBase    = heroOnCheckBetFrontier    ? speculativeLine        : queryLine;
+      const villainFoldBase = villainOnCheckBetFrontier ? villainSpeculativeLine : villainQueryLine;
+      const foldBase       = heroSide ? heroFoldBase    : villainFoldBase;
+      const foldMatchupKey = heroSide ? matchupKey      : villainMatchupKey;
+      const foldKey = foldBase + 'F';
       const r = await fetch(`/api/data?matchup=${encodeURIComponent(foldMatchupKey)}&line=${encodeURIComponent(foldKey)}`);
       if (r.ok) {
         const d = await r.json();
@@ -209,7 +251,7 @@ export default function App() {
     tryInOrder().catch(() => { if (!cancelled) setSpotData(null); });
     fetchRaiseData().catch(() => { if (!cancelled) setRaiseSpotData(null); });
     return () => { cancelled = true; };
-  }, [matchupKey, queryLine, villainMatchupKey, villainQueryLine, isFacing, villainIsAggressor, fetchSeq]);
+  }, [matchupKey, effectiveFetchLine, villainMatchupKey, villainQueryLine, villainSpeculativeLine, speculativeLine, villainIsAggressor, heroIsAggressor, heroOnCheckBetFrontier, villainOnCheckBetFrontier, queryLine, fetchSeq]);
 
   // Read state from URL on mount
   useEffect(() => {
@@ -272,7 +314,7 @@ export default function App() {
                 <div className="es-title">Build an action line</div>
                 <div className="es-sub">Pick actions on the timeline above to see population frequencies and EV.</div>
               </div>
-            ) : !queryLine ? (
+            ) : !effectiveFetchLine ? (
               <div className="empty-state">
                 <div className="es-title">No data for this spot</div>
               </div>

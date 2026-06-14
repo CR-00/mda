@@ -52,6 +52,30 @@ describe('adaptTableData', () => {
     expect(result.overall.next).toBeDefined();
   });
 
+  // Real snap export shape: nextActions includes both the 2-char response keys
+  // (BF/BC/BR — what we want) AND compound 3+-char keys like 'B-F', 'B-X' that
+  // track "the response followed by villain's next-street action". normalizeNext
+  // must filter to length-2 keys before suffix-matching — otherwise it grabs
+  // 'B-F' as fold, 'B-C' as call, 'B-B' as raise and produces wildly wrong
+  // fold/call/raise frequencies (the 5/2/93 bug reported on chips='bcx').
+  it('ignores compound nextActions keys (B-F, B-X, …) and uses only BF/BC/BR', () => {
+    const realRow = {
+      metric: 'Overall', value: 'Average', action: 'B',
+      hits: 21721, opps: 49062, freq: 0.44, pctPot: 0.66, pot: 9.69,
+      nextActions: {
+        'B-B': 4383, 'B-C': 97, 'B-F': 206, 'B-R': 65, 'B-X': 4094,
+        BC: 395, BF: 646, BR: 55,
+      },
+    };
+    const result = adaptTableData([realRow], 'Texture');
+    // Total of the 2-char keys is 646+395+55 = 1096 → 59% / 36% / 5%
+    expect(result.overall.next.bf).toBeCloseTo(646 / 1096, 3);
+    expect(result.overall.next.bc).toBeCloseTo(395 / 1096, 3);
+    expect(result.overall.next.br).toBeCloseTo(55 / 1096, 3);
+    // The compound 'B-B' key (4383) must NOT dominate the raise share.
+    expect(result.overall.next.br).toBeLessThan(0.10);
+  });
+
   it('maps hits/opps to sample/ofN', () => {
     const result = adaptTableData([row({ hits: 123, opps: 456 })], 'Texture');
     expect(result.overall.sample).toBe(123);

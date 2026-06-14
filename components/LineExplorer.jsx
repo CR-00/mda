@@ -1,16 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { fmtCount } from '../lib/data';
+import { classifyLine } from '../lib/lines';
 
 const STREETS = ['flop', 'turn', 'river'];
-
-function classifyLine(lineCode) {
-  const lastChar = lineCode[lineCode.length - 1];
-  if (lastChar === 'F') return null;
-  const dashes = (lineCode.match(/-/g) || []).length;
-  const street = STREETS[Math.min(dashes, 2)];
-  const mode = (lastChar === 'B' || lastChar === 'R') ? 'facing' : 'bet';
-  return { street, mode };
-}
 
 export default function LineExplorer({ matchupKey }) {
   const [raw, setRaw] = useState(null);
