@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import ConfigBar, { POT_TYPES, isValidCombo, getOopOptions } from './ConfigBar';
+import ConfigBar, { BoardCard, POT_TYPES, isValidCombo, getOopOptions } from './ConfigBar';
 import ActionTimeline from './ActionTimeline';
 import ResultsPane from './ResultsPane';
 import UploadModal from './UploadModal';
@@ -39,68 +39,110 @@ function deriveAutoFilters(board) {
   return matched;
 }
 
-function BurgerMenu({ view, onSetView }) {
-  const [open, setOpen] = useState(false);
-  const VIEWS = [
-    { id: 'analyzer', label: 'Analyzer' },
-    { id: 'explorer', label: 'Line Explorer' },
-    { id: 'spots', label: 'Spot Browser', href: '/spots' },
-    { id: 'exploits', label: 'Exploits', href: '/exploits' },
-    { id: 'summary', label: 'Strategy Summary', href: '/summary' },
-  ];
-  return (
-    <>
-      <div className="burger-wrap">
-        <button
-          className={`burger-btn${open ? ' open' : ''}`}
-          onClick={() => setOpen(o => !o)}
-          aria-label="Navigation menu"
-        >
-          <span className="burger-bar" />
-          <span className="burger-bar" />
-          <span className="burger-bar" />
-        </button>
-      </div>
+const NAV_VIEWS = [
+  { id: 'analyzer', label: 'Analyzer' },
+  { id: 'explorer', label: 'Line Explorer' },
+  { id: 'spots', label: 'Spot Browser', href: '/spots', needs: 'spots' },
+  { id: 'exploits', label: 'Exploits', href: '/exploits', needs: 'exploits' },
+  { id: 'summary', label: 'Strategy Summary', href: '/summary', needs: 'summary' },
+];
 
-      {open && <div className="drawer-backdrop" onClick={() => setOpen(false)} />}
-      <div className={`drawer${open ? ' open' : ''}`}>
-        <div className="drawer-header">
-          <span className="drawer-title">Menu</span>
-          <button className="drawer-close" onClick={() => setOpen(false)}>✕</button>
+function NavMenu({ view, onSetView }) {
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState(null); // null = unknown; don't disable until known
+  const current = NAV_VIEWS.find(v => v.id === view) ?? NAV_VIEWS[0];
+
+  // Which strategy-backed pages have data uploaded — drives disabling links that
+  // would otherwise 404.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/strategy-status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setStatus(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (!e.target.closest('.nav-menu')) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const isDisabled = (v) => !!v.needs && status != null && status[v.needs] === false;
+
+  return (
+    <div className="nav-menu">
+      <button
+        className={`nav-menu-trigger${open ? ' open' : ''}`}
+        onClick={() => setOpen(o => !o)}
+        aria-label="Section navigation"
+        aria-expanded={open}
+      >
+        {current.label}<span className="nav-caret">▾</span>
+      </button>
+      {open && (
+        <div className="nav-menu-list">
+          {NAV_VIEWS.map(v => {
+            if (isDisabled(v)) {
+              return (
+                <button key={v.id} className="nav-menu-item disabled" disabled title="No data uploaded">
+                  {v.label}
+                </button>
+              );
+            }
+            return v.href ? (
+              <a key={v.id} className="nav-menu-item" href={v.href}>{v.label}</a>
+            ) : (
+              <button
+                key={v.id}
+                className={`nav-menu-item${view === v.id ? ' active' : ''}`}
+                onClick={() => { onSetView(v.id); setOpen(false); }}
+              >{v.label}</button>
+            );
+          })}
         </div>
-        <nav className="drawer-nav">
-          {VIEWS.map(v => v.href ? (
-            <a
-              key={v.id}
-              className="drawer-item"
-              href={v.href}
-              onClick={() => setOpen(false)}
-            >
-              {v.label}
-            </a>
-          ) : (
-            <button
-              key={v.id}
-              className={`drawer-item${view === v.id ? ' active' : ''}`}
-              onClick={() => { onSetView(v.id); setOpen(false); }}
-            >
-              {v.label}
-            </button>
-          ))}
-        </nav>
-      </div>
-    </>
+      )}
+    </div>
   );
 }
 
+// Read deep-link state from the URL once, for the initial render. App is a
+// client-only component (ssr:false), so window is available here. Doing this in
+// the state initializers — rather than a mount effect — avoids racing the
+// URL-writing effect, which would otherwise clobber the params back to defaults
+// (especially under React StrictMode's double-invoked effects).
+function readInitialState() {
+  const d = { ipPos: "LP", oopPos: "BB", potType: "srp", playerType: "reg", hero: "LP", chips: [], board: DEFAULT_BOARD };
+  if (typeof window === 'undefined') return d;
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('ip')) d.ipPos = p.get('ip');
+  if (p.get('oop')) d.oopPos = p.get('oop');
+  if (p.get('pot')) d.potType = p.get('pot');
+  if (p.get('player')) d.playerType = SHOW_FISH ? p.get('player') : 'reg';
+  if (p.get('hero')) d.hero = p.get('hero');
+  if (p.get('line')) d.chips = p.get('line').split('');
+  if (p.get('board')) d.board = parseBoard(p.get('board'));
+  return d;
+}
+
 export default function App() {
+  const initial = useRef();
+  if (!initial.current) initial.current = readInitialState();
+
   const [view, setView] = useState('analyzer');
-  const [ipPos, setIpPos] = useState("LP");
-  const [oopPos, setOopPos] = useState("BB");
-  const [potType, setPotType] = useState("srp");
-  const [playerType, setPlayerType] = useState("reg");
-  const [hero, setHero] = useState("LP");
-  const [chips, setChips] = useState([]);
+  const [ipPos, setIpPos] = useState(initial.current.ipPos);
+  const [oopPos, setOopPos] = useState(initial.current.oopPos);
+  const [potType, setPotType] = useState(initial.current.potType);
+  const [playerType, setPlayerType] = useState(initial.current.playerType);
+  const [hero, setHero] = useState(initial.current.hero);
+  const [chips, setChips] = useState(initial.current.chips);
 
   const matchup = `${ipPos.toLowerCase()}_${oopPos.toLowerCase()}_${potType}`;
   if (!MATCHUPS.find(x => x.id === matchup)) {
@@ -116,7 +158,7 @@ export default function App() {
   }
 
   const [line, setLine] = useState([]);
-  const [board, setBoard] = useState(DEFAULT_BOARD);
+  const [board, setBoard] = useState(initial.current.board);
 
   const autoFilters = useMemo(() => deriveAutoFilters(board), [board]);
   const filters = useMemo(() => ({ texture: autoFilters.map(f => f.id), pool: [] }), [autoFilters]);
@@ -253,18 +295,6 @@ export default function App() {
     return () => { cancelled = true; };
   }, [matchupKey, effectiveFetchLine, villainMatchupKey, villainQueryLine, villainSpeculativeLine, speculativeLine, villainIsAggressor, heroIsAggressor, heroOnCheckBetFrontier, villainOnCheckBetFrontier, queryLine, fetchSeq]);
 
-  // Read state from URL on mount
-  useEffect(() => {
-    const p = new URLSearchParams(window.location.search);
-    if (p.get('ip')) setIpPos(p.get('ip'));
-    if (p.get('oop')) setOopPos(p.get('oop'));
-    if (p.get('pot')) setPotType(p.get('pot'));
-    if (p.get('player')) setPlayerType(SHOW_FISH ? p.get('player') : 'reg');
-    if (p.get('hero')) setHero(p.get('hero'));
-    if (p.get('line')) setChips(p.get('line').split(''));
-    if (p.get('board')) setBoard(parseBoard(p.get('board')));
-  }, []);
-
   // Write state to URL whenever it changes
   useEffect(() => {
     const p = new URLSearchParams();
@@ -283,17 +313,14 @@ export default function App() {
 
   return (
     <div className="app no-topbar">
-      <BurgerMenu view={view} onSetView={setView} />
       <div className="page">
-        <section className="setup-card">
-          <ConfigBar
-            ipPos={ipPos} setIpPos={setIpPos}
-            oopPos={oopPos} setOopPos={setOopPos}
-            potType={potType} setPotType={setPotType}
-            playerType={playerType} setPlayerType={setPlayerType}
-            hero={hero} setHero={setHero}
-          />
-        </section>
+        <ConfigBar
+          ipPos={ipPos} setIpPos={setIpPos}
+          oopPos={oopPos} setOopPos={setOopPos}
+          potType={potType} setPotType={setPotType}
+          playerType={playerType} setPlayerType={setPlayerType}
+          nav={<NavMenu view={view} onSetView={setView} />}
+        />
 
         {view === 'explorer' ? (
           <LineExplorer matchupKey={matchupKey} />
@@ -308,6 +335,8 @@ export default function App() {
                 chips={chips} setChips={setChips}
               />
             </section>
+
+            <BoardCard board={board} setBoard={setBoard} />
 
             {nonMarkerLine.length === 0 ? (
               <div className="empty-state">
@@ -329,7 +358,6 @@ export default function App() {
                 spotData={spotData}
                 raiseSpotData={raiseSpotData}
                 onUpload={() => setUploadOpen(true)}
-                onSelectNext={(nextChips) => timelineRef.current?.appendChips(nextChips)}
               />
             )}
 

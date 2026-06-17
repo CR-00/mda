@@ -13,7 +13,6 @@ function fmtEV(evBB, potSize, evUnit) {
 import { MATCHUPS, fmtCount } from '../lib/data';
 import { adaptTableData, computeBoardAdjusted } from '../lib/adaptData';
 import { getBoardTextures } from '../lib/boardTextures';
-import { BoardInline } from './ConfigBar';
 
 function detectMode(line, hero, matchup) {
   const m = MATCHUPS.find(x => x.id === matchup);
@@ -26,7 +25,7 @@ function detectMode(line, hero, matchup) {
   return { mode: facing ? "facing" : "bet", actor: nextActor, street, facingAction: facing ? lastAction : null };
 }
 
-export default function ResultsPane({ line, hero, matchup, filters, board, setBoard, spotData, raiseSpotData, onUpload, onSelectNext }) {
+export default function ResultsPane({ line, hero, matchup, filters, board, setBoard, spotData, raiseSpotData, onUpload }) {
   const ctx = useMemo(() => detectMode(line, hero, matchup), [line, matchup]);
   const street = ctx.street.charAt(0).toUpperCase() + ctx.street.slice(1);
 
@@ -118,12 +117,9 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
             )}
           </div>
         </div>
-        <BoardInline board={board} setBoard={setBoard} />
       </div>
 
-      <Recommendation mode={ctx.mode} data={realSizeData} raiseData={realRaiseData} bluffRaiseData={realBluffRaiseData} />
-
-      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} onSelectNext={onSelectNext} />
+      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} />
     </div>
     </EVUnitCtx.Provider>
   );
@@ -131,174 +127,117 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
 
 // ─── Table tabs ──────────────────────────────────────────────────────────────
 
-function SpotSummary({ mode, facingAction, sizeData, textureData }) {
+function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, raiseTextureData }) {
   const avg = sizeData?.overall;
   const board = textureData?.overall;
   const evUnit = useContext(EVUnitCtx);
   if (!avg) return null;
 
-  const evKey = mode === "bet" ? "bluffEV" : "callEV";
-  const evLabel = mode === "bet" ? "Bluff EV" : "Call EV";
+  // EV stats per column. In bet mode the spot's own row holds the bluff(-bet) EV.
+  // When facing a bet, "Bluff EV" is the bluff-RAISE EV, which lives in the raise
+  // data (same source as the "Bluff EV vs size" table) — not the facing node — so
+  // the two figures agree. Call EV stays on the facing node.
+  const evStats = mode === "bet"
+    ? [{ label: "Bluff EV", from: "row", key: "bluffEV" }]
+    : [
+        { label: "Call EV", from: "row", key: "callEV" },
+        { label: "Bluff EV", from: "raise", key: "bluffEV" },
+      ];
 
   const actionLabel = mode === "bet" ? "bet" : (facingAction ?? "bet");
   const cols = [
-    { label: "Average vs " + actionLabel, row: avg },
-    ...(board ? [{ label: "This board vs " + actionLabel, row: board }] : []),
+    { label: "Average vs " + actionLabel, row: avg, raise: raiseData?.overall },
+    ...(board ? [{ label: "This board vs " + actionLabel, row: board, raise: raiseTextureData?.overall }] : []),
   ];
 
   return (
     <div className="spot-summary">
-      {cols.map(({ label, row }) => {
-        const { v, dp, suffix } = fmtEV(row[evKey], row.potSize, evUnit);
-        return (
-          <div key={label} className="ss-col">
-            <div className="ss-col-label">{label}</div>
-            <div className="ss-stats">
-              <div className="ss-stat">
-                <span className="ss-stat-label">Fold</span>
-                <span className="ss-stat-val">{(row.next.bf * 100).toFixed(0)}%</span>
-              </div>
-              <div className="ss-stat">
-                <span className="ss-stat-label">Call</span>
-                <span className="ss-stat-val">{(row.next.bc * 100).toFixed(0)}%</span>
-              </div>
-              {row.next.br > 0.01 && (
-                <div className="ss-stat">
-                  <span className="ss-stat-label">Raise</span>
-                  <span className="ss-stat-val">{(row.next.br * 100).toFixed(0)}%</span>
-                </div>
-              )}
-              <div className="ss-stat ss-stat-ev">
-                <span className="ss-stat-label">{evLabel}</span>
-                <span className={"ss-stat-val " + (v >= 0 ? "pos" : "neg")}>
-                  {v >= 0 ? "+" : "−"}{Math.abs(v).toFixed(dp)}{suffix}
-                </span>
-              </div>
+      {cols.map(({ label, row, raise }) => (
+        <div key={label} className="ss-col">
+          <div className="ss-col-label">{label}</div>
+          <div className="ss-stats">
+            <div className="ss-stat">
+              <span className="ss-stat-label">Fold</span>
+              <span className="ss-stat-val">{(row.next.bf * 100).toFixed(0)}%</span>
             </div>
+            <div className="ss-stat">
+              <span className="ss-stat-label">Call</span>
+              <span className="ss-stat-val">{(row.next.bc * 100).toFixed(0)}%</span>
+            </div>
+            {row.next.br > 0.01 && (
+              <div className="ss-stat">
+                <span className="ss-stat-label">Raise</span>
+                <span className="ss-stat-val">{(row.next.br * 100).toFixed(0)}%</span>
+              </div>
+            )}
+            {evStats.map(({ label: evLabel, from, key }) => {
+              const src = from === "raise" ? raise : row;
+              const raw = src?.[key];
+              if (raw == null || Number.isNaN(raw)) return null;
+              const { v, dp, suffix } = fmtEV(raw, src.potSize, evUnit);
+              return (
+                <div key={evLabel} className="ss-stat ss-stat-ev">
+                  <span className="ss-stat-label">{evLabel}</span>
+                  <span className={"ss-stat-val " + (v >= 0 ? "pos" : "neg")}>
+                    {v >= 0 ? "+" : "−"}{Math.abs(v).toFixed(dp)}{suffix}
+                  </span>
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
 
-function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData, onSelectNext }) {
+function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData }) {
   const [tab, setTab] = useState("size");
-  const showBluffVsSize = mode === "facing" && !!raiseData;
-  const showBluffBySize = mode === "facing" && !!bluffRaiseData;
+  const isFacing = mode === "facing";
+  // The bluff-raise tabs are always relevant when facing a bet (you can raise),
+  // but the underlying data isn't always exported for the spot. Show them as
+  // disabled rather than hiding them, so it's clear data is missing vs absent.
+  const hasVsSize = !!raiseData;       // also gates the raise-texture tab
+  const hasBySize = !!bluffRaiseData;
+
+  const ttab = (id, label, disabled = false) => (
+    <button
+      className={"ttab" + (tab === id ? " active" : "") + (disabled ? " disabled" : "")}
+      onClick={disabled ? undefined : () => setTab(id)}
+      disabled={disabled}
+      title={disabled ? "No data for this spot" : undefined}
+    >{label}</button>
+  );
+
   return (
     <div className="table-tabs">
-      <SpotSummary mode={mode} facingAction={facingAction} sizeData={sizeData} textureData={textureData} />
+      <SpotSummary mode={mode} facingAction={facingAction} sizeData={sizeData} textureData={textureData} raiseData={raiseData} raiseTextureData={raiseTextureData} />
       <div className="ttabs-bar">
-        <button className={"ttab" + (tab === "size" ? " active" : "")} onClick={() => setTab("size")}>{mode === "facing" ? "Call EV by size" : "By size"}</button>
-        <button className={"ttab" + (tab === "texture" ? " active" : "")} onClick={() => setTab("texture")}>{mode === "facing" ? "Call EV by texture" : "By texture"}</button>
-        {showBluffVsSize && (
-          <button className={"ttab" + (tab === "raise-size" ? " active" : "")} onClick={() => setTab("raise-size")}>Bluff EV vs size</button>
-        )}
-        {showBluffBySize && (
-          <button className={"ttab" + (tab === "bluff-raise-size" ? " active" : "")} onClick={() => setTab("bluff-raise-size")}>Bluff EV by size</button>
-        )}
-        {showBluffVsSize && (
-          <button className={"ttab" + (tab === "raise-texture" ? " active" : "")} onClick={() => setTab("raise-texture")}>Bluff EV by texture</button>
-        )}
+        {ttab("size", isFacing ? "Call EV by size" : "By size")}
+        {ttab("texture", isFacing ? "Call EV by texture" : "By texture")}
+        {isFacing && ttab("raise-size", "Bluff EV vs size", !hasVsSize)}
+        {isFacing && ttab("bluff-raise-size", "Bluff EV by size", !hasBySize)}
+        {isFacing && ttab("raise-texture", "Bluff EV by texture", !hasVsSize)}
       </div>
       {tab === "size" && (
         mode === "bet"
-          ? <BetSizeTable street={street} data={sizeData} onSelectNext={onSelectNext} />
-          : <FacingSizeTable street={street} data={sizeData} onSelectNext={onSelectNext} />
+          ? <BetSizeTable street={street} data={sizeData} />
+          : <FacingSizeTable street={street} data={sizeData} />
       )}
       {tab === "texture" && (
         mode === "bet"
           ? <BetTextureTable street={street} data={textureData} />
-          : <FacingTextureTable street={street} data={textureData} onSelectNext={onSelectNext} />
+          : <FacingTextureTable street={street} data={textureData} />
       )}
-      {tab === "raise-size" && showBluffVsSize && (
+      {tab === "raise-size" && hasVsSize && (
         <RaiseSizeTable street={street} data={raiseData} label="Bet Size" />
       )}
-      {tab === "raise-texture" && showBluffVsSize && (
+      {tab === "raise-texture" && hasVsSize && (
         <RaiseSizeTable street={street} data={raiseTextureData} label="Texture" />
       )}
-      {tab === "bluff-raise-size" && showBluffBySize && (
+      {tab === "bluff-raise-size" && hasBySize && (
         <RaiseSizeTable street={street} data={bluffRaiseData} label="Raise Size" />
       )}
-    </div>
-  );
-}
-
-// ─── Recommendation ──────────────────────────────────────────────────────────
-
-function Recommendation({ mode, data, raiseData, bluffRaiseData }) {
-  const evUnit = useContext(EVUnitCtx);
-  if (!data) return null;
-  const rows = data.rows.filter(r => r.sample >= 200);
-  if (!rows.length) return null;
-
-  let cards;
-
-  if (mode === "bet") {
-    const confidence = (r) => r.sample / (r.sample + 400);
-
-    const bluffRows = [...rows]
-      .map(r => ({ ...r, rawScore: r.next.bf - r.next.bc * r.sizeRatio }))
-      .sort((a, b) => (b.rawScore * confidence(b)) - (a.rawScore * confidence(a)));
-
-    const valueRows = [...rows]
-      .map(r => ({ ...r, rawScore: r.next.bc * r.sizeRatio - r.next.br }))
-      .sort((a, b) => (b.rawScore * confidence(b)) - (a.rawScore * confidence(a)));
-
-    cards = [
-      { eyebrow: "Top bluff sizes", ranked: true, items: bluffRows.map(r => ({ label: r.label, evBB: r.bluffEV, potSize: r.potSize, evPos: r.bluffEV >= 0 })) },
-      { eyebrow: "Top value sizes", ranked: true, items: valueRows.map(r => ({ label: r.label, evBB: r.rawScore * r.potSize, potSize: r.potSize, evPos: r.rawScore > 0 })) },
-    ];
-  } else {
-    const confidence = (r) => r.sample / (r.sample + 400);
-    const vsRows = [...(raiseData?.rows?.filter(r => r.sample >= 50) ?? [])]
-      .sort((a, b) => (b.bluffEV * confidence(b)) - (a.bluffEV * confidence(a)));
-    const byRows = [...(bluffRaiseData?.rows?.filter(r => r.sample >= 50) ?? [])]
-      .sort((a, b) => (b.bluffEV * confidence(b)) - (a.bluffEV * confidence(a)));
-    cards = [
-      ...(vsRows.length ? [{ eyebrow: "Top sizes to bluff vs", ranked: true, items: vsRows.map(r => ({ label: r.label, evBB: r.bluffEV, potSize: r.potSize, evPos: r.bluffEV >= 0 })) }] : []),
-      ...(byRows.length ? [{ eyebrow: "Best bluff raise sizes", ranked: true, items: byRows.map(r => ({ label: r.label, evBB: r.bluffEV, potSize: r.potSize, evPos: r.bluffEV >= 0 })) }] : []),
-    ];
-  }
-
-  if (!cards.length) return null;
-
-  return (
-    <div className={"reco reco-" + mode + " cols-" + cards.length}>
-      {cards.map((c, i) => (
-        <div key={i} className={"reco-card" + (c.winner ? " winner" : "")}>
-          {c.winner && <div className="reco-pin">Best play</div>}
-          <div className="reco-eyebrow">{c.eyebrow}</div>
-          {c.ranked ? (
-            <div className="reco-ranked">
-              {c.items.map((item, j) => {
-                const { v, dp, suffix } = fmtEV(item.evBB, item.potSize, evUnit);
-                return (
-                  <div key={j} className="rr-item">
-                    <span className="rr-rank">{j + 1}</span>
-                    <span className="rr-label">{item.label}</span>
-                    <span className={"rr-ev " + (item.evPos ? "pos" : "neg")}>
-                      {item.evPos ? "+" : "−"}{Math.abs(v).toFixed(dp)}{suffix}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <>
-              <div className="reco-value">{c.value}</div>
-              <div className="reco-meta">
-                <span className={"reco-ev " + (c.evPos ? "pos" : "neg")}>
-                  {c.evPos ? "+" : "−"}{Math.abs(c.ev).toFixed(1)}{c.unit} {c.evLabel}
-                </span>
-                {c.sub && <><span className="reco-sep">·</span><span className="reco-sample">{c.sub}</span></>}
-                {!c.sub && c.sample && <><span className="reco-sep">·</span><span className="reco-sample">{fmtCount(c.sample)} hands</span></>}
-              </div>
-            </>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
@@ -388,28 +327,6 @@ function SampleCell({ row }) {
   );
 }
 
-function NextActionCell({ next, onSelect }) {
-  const cls = "na-item" + (onSelect ? " na-clickable" : "");
-  return (
-    <div className="next-action">
-      <div className={cls} onClick={onSelect ? () => onSelect('fold') : undefined}>
-        <div className="na-label">BF</div>
-        <div className="na-val bf">{(next.bf*100).toFixed(1)}%</div>
-      </div>
-      <div className={cls} onClick={onSelect ? () => onSelect('call') : undefined}>
-        <div className="na-label">BC</div>
-        <div className="na-val bc">{(next.bc*100).toFixed(1)}%</div>
-      </div>
-      {next.hasBR && (
-        <div className={cls} onClick={onSelect ? () => onSelect('raise') : undefined}>
-          <div className="na-label">BR</div>
-          <div className="na-val br">{(next.br*100).toFixed(1)}%</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function EVCell({ evBB, potSize }) {
   const evUnit = useContext(EVUnitCtx);
   const { v, dp, suffix } = fmtEV(evBB, potSize, evUnit);
@@ -468,11 +385,10 @@ function SortTh({ col, sort, onSort, className, children }) {
 const BET_ACCESSORS = {
   label: r => r.label,
   sample: r => r.sample,
-  next: r => r.next?.bf ?? 0,
   bluffEV: r => r.bluffEV,
 };
 
-function BetSizeTable({ street, data, onSelectNext }) {
+function BetSizeTable({ street, data }) {
   const [sort, cycleSort] = useSortState();
   if (!data) return null;
   const rows = sortRows(data.rows, sort, BET_ACCESSORS);
@@ -484,45 +400,29 @@ function BetSizeTable({ street, data, onSelectNext }) {
         <colgroup>
           <col className="col-label" />
           <col className="col-sample" />
-          <col className="col-next" />
           <col className="col-ev" />
         </colgroup>
         <thead>
           <tr>
             <SortTh col="label" sort={sort} onSort={cycleSort} className="ta-l">{headerLabel}</SortTh>
             <SortTh col="sample" sort={sort} onSort={cycleSort} className="ta-l">Sample</SortTh>
-            <SortTh col="next" sort={sort} onSort={cycleSort}>Next Action</SortTh>
             <SortTh col="bluffEV" sort={sort} onSort={cycleSort} className="ta-r">Bluff EV</SortTh>
           </tr>
         </thead>
         <tbody>
-          <BetSizeRow row={data.overall} overall={data.overall} isOverall />
-          {rows.map((row, i) => <BetSizeRow key={i} row={row} overall={data.overall} onSelectNext={onSelectNext} />)}
+          <BetSizeRow row={data.overall} isOverall />
+          {rows.map((row, i) => <BetSizeRow key={i} row={row} />)}
         </tbody>
       </table>
     </div>
   );
 }
 
-const ACTION_CHAR = { fold: 'f', call: 'c', raise: 'r' };
-
-function BetSizeRow({ row, overall, isOverall, onSelectNext }) {
-  const handleSelect = onSelectNext ? (nextAction) => {
-    const sizingPct = parseFloat(row.label);
-    if (isNaN(sizingPct)) return;
-    const ch = ACTION_CHAR[nextAction];
-    if (!ch) return;
-    onSelectNext([
-      { action: 'b', sizing: Math.round(sizingPct) },
-      { action: ch, sizing: null },
-    ]);
-  } : null;
-
+function BetSizeRow({ row, isOverall }) {
   return (
     <tr className={isOverall ? "overall-row" : ""}>
       <td className="ta-l size-label">{row.label}</td>
       <td className="ta-l"><SampleCell row={row} /></td>
-      <td>{row.next && <NextActionCell next={row.next} onSelect={handleSelect} />}</td>
       <td className="ta-r">
         <Tooltip tip={<BluffEVTip row={row} />}>
           <EVCell evBB={row.bluffEV} potSize={row.potSize} />
@@ -543,20 +443,18 @@ function RaiseSizeTable({ data, label }) {
         <colgroup>
           <col className="col-label" />
           <col className="col-sample" />
-          <col className="col-next" />
           <col className="col-ev" />
         </colgroup>
         <thead>
           <tr>
             <SortTh col="label" sort={sort} onSort={cycleSort} className="ta-l">{label}</SortTh>
             <SortTh col="sample" sort={sort} onSort={cycleSort} className="ta-l">Sample</SortTh>
-            <SortTh col="next" sort={sort} onSort={cycleSort}>Next Action</SortTh>
             <SortTh col="bluffEV" sort={sort} onSort={cycleSort} className="ta-r">Bluff EV</SortTh>
           </tr>
         </thead>
         <tbody>
-          <BetSizeRow row={data.overall} overall={data.overall} isOverall />
-          {rows.map((row, i) => <BetSizeRow key={i} row={row} overall={data.overall} />)}
+          <BetSizeRow row={data.overall} isOverall />
+          {rows.map((row, i) => <BetSizeRow key={i} row={row} />)}
         </tbody>
       </table>
     </div>
@@ -574,20 +472,18 @@ function BetTextureTable({ street, data, boardTextures }) {
         <colgroup>
           <col className="col-label" />
           <col className="col-sample" />
-          <col className="col-next" />
           <col className="col-ev" />
         </colgroup>
         <thead>
           <tr>
             <SortTh col="label" sort={sort} onSort={cycleSort} className="ta-l">Texture</SortTh>
             <SortTh col="sample" sort={sort} onSort={cycleSort} className="ta-l">Sample</SortTh>
-            <SortTh col="next" sort={sort} onSort={cycleSort}>Next Action</SortTh>
             <SortTh col="bluffEV" sort={sort} onSort={cycleSort} className="ta-r">Bluff EV</SortTh>
           </tr>
         </thead>
         <tbody>
-          <BetSizeRow row={data.overall} overall={data.overall} isOverall />
-          {rows.map((row, i) => <BetSizeRow key={i} row={row} overall={data.overall} />)}
+          <BetSizeRow row={data.overall} isOverall />
+          {rows.map((row, i) => <BetSizeRow key={i} row={row} />)}
         </tbody>
       </table>
     </div>
@@ -597,11 +493,10 @@ function BetTextureTable({ street, data, boardTextures }) {
 const FACING_ACCESSORS = {
   label: r => r.label,
   sample: r => r.sample,
-  next: r => r.next.bf,
   callEV: r => r.callEV,
 };
 
-function FacingSizeTable({ street, data, onSelectNext }) {
+function FacingSizeTable({ street, data }) {
   const [sort, cycleSort] = useSortState();
   if (!data) return null;
   const rows = sortRows(data.rows, sort, FACING_ACCESSORS);
@@ -612,27 +507,25 @@ function FacingSizeTable({ street, data, onSelectNext }) {
         <colgroup>
           <col className="col-label" />
           <col className="col-sample" />
-          <col className="col-next" />
           <col className="col-ev" />
         </colgroup>
         <thead>
           <tr>
             <SortTh col="label" sort={sort} onSort={cycleSort} className="ta-l">Size</SortTh>
             <SortTh col="sample" sort={sort} onSort={cycleSort} className="ta-l">Sample</SortTh>
-            <SortTh col="next" sort={sort} onSort={cycleSort}>Next Action</SortTh>
             <SortTh col="callEV" sort={sort} onSort={cycleSort} className="ta-r">Call EV</SortTh>
           </tr>
         </thead>
         <tbody>
-          <FacingRow row={data.overall} overall={data.overall} isOverall onSelectNext={onSelectNext} />
-          {rows.map((row, i) => <FacingRow key={i} row={row} overall={data.overall} onSelectNext={onSelectNext} />)}
+          <FacingRow row={data.overall} isOverall />
+          {rows.map((row, i) => <FacingRow key={i} row={row} />)}
         </tbody>
       </table>
     </div>
   );
 }
 
-function FacingTextureTable({ street, data, onSelectNext }) {
+function FacingTextureTable({ street, data }) {
   const [sort, cycleSort] = useSortState();
   if (!data) return null;
   const rows = sortRows(data.rows, sort, FACING_ACCESSORS);
@@ -643,38 +536,29 @@ function FacingTextureTable({ street, data, onSelectNext }) {
         <colgroup>
           <col className="col-label" />
           <col className="col-sample" />
-          <col className="col-next" />
           <col className="col-ev" />
         </colgroup>
         <thead>
           <tr>
             <SortTh col="label" sort={sort} onSort={cycleSort} className="ta-l">Texture</SortTh>
             <SortTh col="sample" sort={sort} onSort={cycleSort} className="ta-l">Sample</SortTh>
-            <SortTh col="next" sort={sort} onSort={cycleSort}>Next Action</SortTh>
             <SortTh col="callEV" sort={sort} onSort={cycleSort} className="ta-r">Call EV</SortTh>
           </tr>
         </thead>
         <tbody>
-          <FacingRow row={data.overall} overall={data.overall} isOverall isTexture onSelectNext={onSelectNext} />
-          {rows.map((row, i) => <FacingRow key={i} row={row} overall={data.overall} isTexture onSelectNext={onSelectNext} />)}
+          <FacingRow row={data.overall} isOverall isTexture />
+          {rows.map((row, i) => <FacingRow key={i} row={row} isTexture />)}
         </tbody>
       </table>
     </div>
   );
 }
 
-function FacingRow({ row, overall, isOverall, isTexture, onSelectNext }) {
-  const handleSelect = onSelectNext ? (nextAction) => {
-    const ch = ACTION_CHAR[nextAction];
-    if (!ch) return;
-    onSelectNext([{ action: ch, sizing: null }]);
-  } : null;
-
+function FacingRow({ row, isOverall, isTexture }) {
   return (
     <tr className={isOverall ? "overall-row" : ""}>
       <td className="ta-l size-label">{row.label}</td>
       <td className="ta-l"><SampleCell row={row} /></td>
-      <td><NextActionCell next={row.next} onSelect={handleSelect} /></td>
       <td className="ta-r">
         <Tooltip tip={<CallEVTip row={row} />}>
           <EVCell evBB={row.callEV} potSize={row.potSize} />
