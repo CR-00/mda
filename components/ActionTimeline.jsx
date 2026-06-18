@@ -93,6 +93,23 @@ const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, match
       <div className="tree-scroll">
         <div className="tree">
           <div className="tree-streets-grid with-header">
+            <div className="street-group root-group">
+              <div className="street-group-header">
+                <div className="street-group-label">root</div>
+              </div>
+              <div className="street-group-cols">
+                <div className="tcol">
+                  <button
+                    type="button"
+                    className="tnode root-node"
+                    onClick={reset}
+                    disabled={!chips.length}
+                    title="Reset line to root"
+                    aria-label="Reset line to root"
+                  >⟲</button>
+                </div>
+              </div>
+            </div>
             {STREETS.map((s) => {
               const streetNodes = nodes.map((n, i) => ({ n, i })).filter(x => x.n.street === s);
               const hasFrontier = frontier && frontier.street === s;

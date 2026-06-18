@@ -4,8 +4,10 @@ import ActionTimeline from './ActionTimeline';
 import ResultsPane from './ResultsPane';
 import UploadModal from './UploadModal';
 import CoverageModal from './CoverageModal';
+import SettingsModal from './SettingsModal';
 import LineExplorer from './LineExplorer';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle } from './TweaksPanel';
+import { useSettings } from '../lib/useSettings';
 import { MATCHUPS, FILTERS } from '../lib/data';
 import { deriveQueryLine, matchupToKey } from '../lib/spotMatch';
 import { SHOW_FISH } from '../lib/flags';
@@ -167,8 +169,10 @@ export default function App() {
 
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
+  const [settings, setSetting] = useSettings();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [coverageOpen, setCoverageOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [spotData, setSpotData] = useState(undefined);
   const [raiseSpotData, setRaiseSpotData] = useState(undefined);
   const [fetchSeq, setFetchSeq] = useState(0);
@@ -237,6 +241,23 @@ export default function App() {
       setHero(ipPos);
     }
   }, [ipPos, oopPos, potType]);
+
+  // Optionally clear the board when the spot changes or the line returns to the
+  // root node. Gated on the user setting; prev-refs skip the initial mount so a
+  // board deep-linked via the URL survives the first render.
+  const prevSpot = useRef(`${ipPos}|${oopPos}|${potType}|${playerType}`);
+  useEffect(() => {
+    const key = `${ipPos}|${oopPos}|${potType}|${playerType}`;
+    if (settings.clearBoardOnReset && key !== prevSpot.current) setBoard(DEFAULT_BOARD);
+    prevSpot.current = key;
+  }, [ipPos, oopPos, potType, playerType, settings.clearBoardOnReset]);
+
+  const prevAtRoot = useRef(nonMarkerLine.length === 0);
+  useEffect(() => {
+    const atRootNow = nonMarkerLine.length === 0;
+    if (settings.clearBoardOnReset && atRootNow && !prevAtRoot.current) setBoard(DEFAULT_BOARD);
+    prevAtRoot.current = atRootNow;
+  }, [nonMarkerLine.length, settings.clearBoardOnReset]);
 
   useEffect(() => {
     if (!effectiveFetchLine) {
@@ -370,6 +391,7 @@ export default function App() {
             <div className="page-footer">
               <button className="ghost-btn" onClick={() => setUploadOpen(true)}>Upload JSON</button>
               <button className="ghost-btn" onClick={() => setCoverageOpen(true)}>Coverage</button>
+              <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>Settings</button>
             </div>
           </>
         )}
@@ -404,6 +426,14 @@ export default function App() {
 
       {coverageOpen && (
         <CoverageModal onClose={() => setCoverageOpen(false)} />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal
+          settings={settings}
+          setSetting={setSetting}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
     </div>
   );

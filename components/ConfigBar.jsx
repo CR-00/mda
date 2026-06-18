@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SHOW_FISH } from '../lib/flags';
 
 export const POT_TYPES = [
@@ -101,6 +101,15 @@ export function BoardCard({ board, setBoard }) {
     const f = board.findIndex(c => c === null);
     return f === -1 ? 4 : f;
   });
+  // When the board is emptied from outside (e.g. a settings-driven reset on spot
+  // change), drop the active slot back to the flop so the next pick lands there.
+  const allEmpty = board.every(c => c === null);
+  const prevAllEmpty = useRef(allEmpty);
+  useEffect(() => {
+    if (allEmpty && !prevAllEmpty.current) setActiveSlot(0);
+    prevAllEmpty.current = allEmpty;
+  }, [allEmpty]);
+
   const used = new Set(board.filter((c, i) => c && i !== activeSlot).map(c => c.rank + c.suit));
 
   const handlePick = (rank, suit) => {

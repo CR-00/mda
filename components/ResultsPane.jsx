@@ -74,6 +74,10 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
     const boardOverall = computeBoardAdjusted(all.overall, matchingRows);
     return { overall: boardOverall, rows: matchingRows };
   }, [spotData, boardTextures]);
+  const realSizeSeqData = useMemo(
+    () => Array.isArray(spotData) ? adaptTableData(spotData, 'Size Sequence') : null,
+    [spotData]
+  );
 
   if (spotData === null) {
     return (
@@ -119,7 +123,7 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
         </div>
       </div>
 
-      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} />
+      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} sizeSeqData={realSizeSeqData} />
     </div>
     </EVUnitCtx.Provider>
   );
@@ -191,7 +195,7 @@ function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, rai
   );
 }
 
-function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData }) {
+function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData, sizeSeqData }) {
   const [tab, setTab] = useState("size");
   const isFacing = mode === "facing";
   // The bluff-raise tabs are always relevant when facing a bet (you can raise),
@@ -199,6 +203,7 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
   // disabled rather than hiding them, so it's clear data is missing vs absent.
   const hasVsSize = !!raiseData;       // also gates the raise-texture tab
   const hasBySize = !!bluffRaiseData;
+  const hasSeq = !!(sizeSeqData && sizeSeqData.rows.length);
 
   const ttab = (id, label, disabled = false) => (
     <button
@@ -218,6 +223,7 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
         {isFacing && ttab("raise-size", "Bluff EV vs size", !hasVsSize)}
         {isFacing && ttab("bluff-raise-size", "Bluff EV by size", !hasBySize)}
         {isFacing && ttab("raise-texture", "Bluff EV by texture", !hasVsSize)}
+        {ttab("size-seq", "Size sequence", !hasSeq)}
       </div>
       {tab === "size" && (
         mode === "bet"
@@ -237,6 +243,9 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
       )}
       {tab === "bluff-raise-size" && hasBySize && (
         <RaiseSizeTable street={street} data={bluffRaiseData} label="Raise Size" />
+      )}
+      {tab === "size-seq" && hasSeq && (
+        <SizeSeqTable data={sizeSeqData} />
       )}
     </div>
   );
@@ -565,5 +574,74 @@ function FacingRow({ row, isOverall, isTexture }) {
         </Tooltip>
       </td>
     </tr>
+  );
+}
+
+const SEQ_ACCESSORS = {
+  label: r => r.label,
+  sample: r => r.sample,
+  fold: r => r.next.bf,
+  bluffEV: r => r.bluffEV,
+  callEV: r => r.callEV,
+};
+
+// One bet-size token per street where a bet went in (flop→turn→river), e.g.
+// "S-L-OB". Fold/Bluff EV/Call EV describe villain's response to the *final*
+// bet of the sequence, so the table answers "which sizing path folds villain
+// out most / bluffs best". Defaults to most-sampled first so the leading rows'
+// bluff EV is trustworthy — single-hand sequences carry wild EVs that would
+// otherwise dominate a Bluff-EV sort. Click Bluff EV to rank by it directly.
+function SizeSeqTable({ data }) {
+  const [sort, cycleSort] = useSortState();
+  const base = [...data.rows].sort((a, b) => b.sample - a.sample);
+  const rows = sortRows(base, sort, SEQ_ACCESSORS);
+
+  return (
+    <div className="data-table-wrap">
+      <div className="seq-legend">
+        <span className="seq-legend-label">Per street</span>
+        <span><b>S</b> small</span>
+        <span><b>M</b> med</span>
+        <span><b>L</b> large</span>
+        <span><b>OB</b> overbet</span>
+      </div>
+      <table className="data-table cols-seq">
+        <colgroup>
+          <col className="col-label" />
+          <col className="col-sample" />
+          <col className="col-fold" />
+          <col className="col-ev" />
+          <col className="col-ev" />
+        </colgroup>
+        <thead>
+          <tr>
+            <SortTh col="label" sort={sort} onSort={cycleSort} className="ta-l">Sequence</SortTh>
+            <SortTh col="sample" sort={sort} onSort={cycleSort} className="ta-l">Sample</SortTh>
+            <SortTh col="fold" sort={sort} onSort={cycleSort} className="ta-r">Fold</SortTh>
+            <SortTh col="bluffEV" sort={sort} onSort={cycleSort} className="ta-r">Bluff EV</SortTh>
+            <SortTh col="callEV" sort={sort} onSort={cycleSort} className="ta-r">Call EV</SortTh>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              <td className="ta-l size-label seq-label">{row.label}</td>
+              <td className="ta-l"><SampleCell row={row} /></td>
+              <td className="ta-r seq-fold">{(row.next.bf * 100).toFixed(0)}%</td>
+              <td className="ta-r">
+                <Tooltip tip={<BluffEVTip row={row} />}>
+                  <EVCell evBB={row.bluffEV} potSize={row.potSize} />
+                </Tooltip>
+              </td>
+              <td className="ta-r">
+                <Tooltip tip={<CallEVTip row={row} />}>
+                  <EVCell evBB={row.callEV} potSize={row.potSize} />
+                </Tooltip>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
