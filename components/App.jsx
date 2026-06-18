@@ -194,15 +194,19 @@ export default function App() {
 
   // Speculative routing when there's no bet outstanding — fetch the *would-be
   // bet* file so bluff-EV data is visible without committing to an action.
-  // Two ways to land on a bet/check frontier:
-  //   1. The opponent just checked, next-to-act is on bet/check decision.
-  //   2. A call ended the street, next-to-act is OOP on the new street.
+  // Three ways to land on a bet/check frontier:
+  //   1. The root of the flop, before any action — OOP is first to act.
+  //   2. The opponent just checked, next-to-act is on bet/check decision.
+  //   3. A call ended the street, next-to-act is OOP on the new street.
   // The "next-to-act" is hero or villain depending on perspective.
+  const atRoot = nonMarkerLine.length === 0;
   const heroIsOop = hero === oopPos;
   const heroOnCheckBetFrontier =
+    (atRoot && heroIsOop) ||
     (lastNonMarkerAction === 'check' && lastNonMarkerActor !== hero) ||
     (lastNonMarkerAction === 'call'  && heroIsOop);
   const villainOnCheckBetFrontier =
+    (atRoot && !heroIsOop) ||
     (lastNonMarkerAction === 'check' && lastNonMarkerActor === hero) ||
     (lastNonMarkerAction === 'call'  && !heroIsOop);
 
@@ -338,15 +342,17 @@ export default function App() {
 
             <BoardCard board={board} setBoard={setBoard} />
 
-            {nonMarkerLine.length === 0 ? (
-              <div className="empty-state">
-                <div className="es-title">Build an action line</div>
-                <div className="es-sub">Pick actions on the timeline above to see population frequencies and EV.</div>
-              </div>
-            ) : !effectiveFetchLine ? (
-              <div className="empty-state">
-                <div className="es-title">No data for this spot</div>
-              </div>
+            {!effectiveFetchLine ? (
+              nonMarkerLine.length === 0 ? (
+                <div className="empty-state">
+                  <div className="es-title">Build an action line</div>
+                  <div className="es-sub">Pick actions on the timeline above to see population frequencies and EV.</div>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <div className="es-title">No data for this spot</div>
+                </div>
+              )
             ) : (
               <ResultsPane
                 line={nonMarkerLine}

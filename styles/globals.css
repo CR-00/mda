@@ -218,32 +218,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-radius: 8px;
   padding: 16px 18px;
 }
-.bc-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.bc-title {
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--ink-0);
-}
-.bc-head .cp-clear { margin-left: auto; }
-.board-input {
-  width: 130px;
-  padding: 8px 10px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--ink-0);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  letter-spacing: 0.06em;
-}
-.board-input::placeholder { color: var(--ink-3); letter-spacing: 0.04em; }
-.board-input:focus { outline: none; border-color: var(--accent); }
+.bm-clear { margin-left: auto; align-self: center; }
 .board-row {
   display: flex;
   gap: 4px;

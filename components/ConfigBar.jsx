@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { SHOW_FISH } from '../lib/flags';
 
 export const POT_TYPES = [
@@ -31,28 +31,6 @@ const SUITS = [
   { id: "c", glyph: "♣", name: "clubs" },
 ];
 const SUIT_GLYPHS = Object.fromEntries(SUITS.map(s => [s.id, s.glyph]));
-const RANK_SET = new Set(RANKS);
-const SUIT_SET = new Set(SUITS.map(s => s.id));
-
-function serializeBoardStr(board) {
-  return board.filter(Boolean).map(c => c.rank + c.suit).join("");
-}
-
-// Forgiving parse for fast live entry: ignores separators, any case, "10" → "T".
-// Reads rank+suit pairs left-to-right, up to 5 cards. A rank with no suit yet is
-// skipped (it fills in once the suit keystroke arrives).
-function parseBoardInput(str) {
-  const clean = str.replace(/10/g, "T").replace(/[^a-z0-9]/gi, "");
-  const cards = [];
-  for (let i = 0; i < clean.length && cards.length < 5; ) {
-    const rank = clean[i].toUpperCase();
-    if (!RANK_SET.has(rank)) { i++; continue; }
-    const suit = clean[i + 1]?.toLowerCase();
-    if (suit && SUIT_SET.has(suit)) { cards.push({ rank, suit }); i += 2; }
-    else { i += 1; }
-  }
-  return cards;
-}
 
 export function isValidCombo(ip, oop, potType) {
   return getOopOptions(ip, potType).some(o => o.id === oop);
@@ -118,20 +96,11 @@ export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType,
 }
 
 export function BoardCard({ board, setBoard }) {
-  // The slot the next clicked/typed card lands in.
+  // The slot the next clicked card lands in.
   const [activeSlot, setActiveSlot] = useState(() => {
     const f = board.findIndex(c => c === null);
     return f === -1 ? 4 : f;
   });
-  const [text, setText] = useState(() => serializeBoardStr(board));
-  const focused = useRef(false);
-
-  // Sync the text field when the board changes from elsewhere (URL load,
-  // clicks, clear) — but never stomp what the user is actively typing.
-  useEffect(() => {
-    if (!focused.current) setText(serializeBoardStr(board));
-  }, [board]);
-
   const used = new Set(board.filter((c, i) => c && i !== activeSlot).map(c => c.rank + c.suit));
 
   const handlePick = (rank, suit) => {
@@ -151,17 +120,7 @@ export function BoardCard({ board, setBoard }) {
     setActiveSlot(i);
   };
 
-  const clearAll = () => { setBoard([null, null, null, null, null]); setText(""); setActiveSlot(0); };
-
-  const handleText = (e) => {
-    const v = e.target.value;
-    setText(v);
-    const cards = parseBoardInput(v);
-    const nb = [null, null, null, null, null];
-    cards.forEach((c, i) => { nb[i] = c; });
-    setBoard(nb);
-    setActiveSlot(cards.length < 5 ? cards.length : 4);
-  };
+  const clearAll = () => { setBoard([null, null, null, null, null]); setActiveSlot(0); };
 
   const slot = (i) => (
     <BoardSlot
@@ -176,25 +135,6 @@ export function BoardCard({ board, setBoard }) {
 
   return (
     <section className="board-card">
-      <div className="bc-head">
-        <span className="bc-title">Board</span>
-        <input
-          className="board-input"
-          value={text}
-          onChange={handleText}
-          onFocus={() => { focused.current = true; }}
-          onBlur={() => { focused.current = false; setText(serializeBoardStr(board)); }}
-          placeholder="AhKsQd…"
-          spellCheck={false}
-          autoCapitalize="none"
-          autoCorrect="off"
-          aria-label="Board cards"
-        />
-        {board.some(Boolean) && (
-          <button className="cp-clear" onClick={clearAll}>Clear</button>
-        )}
-      </div>
-
       <div className="bm-slots">
         <div className="bm-street-group">
           <div className="bm-street-label">Flop</div>
@@ -210,6 +150,9 @@ export function BoardCard({ board, setBoard }) {
           <div className="bm-street-label">River</div>
           <div className="bm-cards">{slot(4)}</div>
         </div>
+        {board.some(Boolean) && (
+          <button className="cp-clear bm-clear" onClick={clearAll}>Clear</button>
+        )}
       </div>
 
       <div className="cp-grid">
