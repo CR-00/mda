@@ -1226,22 +1226,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   transform: translateY(-1px);
   border-color: var(--accent);
 }
-.tnode:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-.tnode:disabled:hover {
-  transform: none;
-  border-color: var(--line);
-}
-.root-group { flex: 0 0 auto; }
-.root-node {
-  justify-content: center;
-  padding: 6px 10px;
-  font-size: 14px;
-  color: var(--ink-2);
-}
-.root-node:hover:not(:disabled) { color: var(--accent); }
 .tn-actor {
   font-size: 9px;
   font-weight: 700;

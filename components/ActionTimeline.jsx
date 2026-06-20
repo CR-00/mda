@@ -58,7 +58,7 @@ function annotatePath(chips, ipPos, oopPos) {
 }
 
 
-const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, matchup, hero, chips, setChips }, ref) {
+const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, matchup, hero, board, setBoard, clearBoardOnReset, chips, setChips }, ref) {
   const m = MATCHUPS.find(x => x.id === matchup);
   const ipPos = m.ip, oopPos = m.oop;
 
@@ -84,7 +84,12 @@ const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, match
   }, [chips, ipPos, oopPos]);
 
   const trimTo = (idx) => setChips(chips.slice(0, idx));
-  const handleFrontierPick = (ch) => setChips([...chips, ch]);
+  const handleFrontierPick = (ch) => {
+    // Taking the first action at the root resets the spot, so wipe the board too
+    // (when the user has opted in). Lets you reset tree + board in one click.
+    if (chips.length === 0 && clearBoardOnReset) setBoard([null, null, null, null, null]);
+    setChips([...chips, ch]);
+  };
   const handleAltPick = (idx, newCh) => setChips([...chips.slice(0, idx), newCh]);
   const reset = () => setChips([]);
 
@@ -93,23 +98,6 @@ const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, match
       <div className="tree-scroll">
         <div className="tree">
           <div className="tree-streets-grid with-header">
-            <div className="street-group root-group">
-              <div className="street-group-header">
-                <div className="street-group-label">root</div>
-              </div>
-              <div className="street-group-cols">
-                <div className="tcol">
-                  <button
-                    type="button"
-                    className="tnode root-node"
-                    onClick={reset}
-                    disabled={!chips.length}
-                    title="Reset line to root"
-                    aria-label="Reset line to root"
-                  >⟲</button>
-                </div>
-              </div>
-            </div>
             {STREETS.map((s) => {
               const streetNodes = nodes.map((n, i) => ({ n, i })).filter(x => x.n.street === s);
               const hasFrontier = frontier && frontier.street === s;

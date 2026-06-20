@@ -248,7 +248,11 @@ export default function App() {
   const prevSpot = useRef(`${ipPos}|${oopPos}|${potType}|${playerType}`);
   useEffect(() => {
     const key = `${ipPos}|${oopPos}|${potType}|${playerType}`;
-    if (settings.clearBoardOnReset && key !== prevSpot.current) setBoard(DEFAULT_BOARD);
+    if (key !== prevSpot.current) {
+      // The old action line doesn't apply to a different spot — reset the timeline.
+      setChips([]);
+      if (settings.clearBoardOnReset) setBoard(DEFAULT_BOARD);
+    }
     prevSpot.current = key;
   }, [ipPos, oopPos, potType, playerType, settings.clearBoardOnReset]);
 
@@ -357,6 +361,7 @@ export default function App() {
                 line={line} setLine={setLine}
                 matchup={matchup} hero={hero}
                 board={board} setBoard={setBoard}
+                clearBoardOnReset={settings.clearBoardOnReset}
                 chips={chips} setChips={setChips}
               />
             </section>
