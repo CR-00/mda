@@ -13,7 +13,7 @@ function fmtEV(evBB, potSize, evUnit) {
 import { MATCHUPS, fmtCount } from '../lib/data';
 import { adaptTableData, computeBoardAdjusted, applySizeSignals } from '../lib/adaptData';
 import { getBoardTextures } from '../lib/boardTextures';
-import { inferSizeSequence } from '../lib/sizing';
+import { inferSizeSequence, inferSizeSeqPattern, prospectiveBetStreet, matchesSizeSeq, patternLabel } from '../lib/sizing';
 
 function detectMode(line, hero, matchup) {
   const m = MATCHUPS.find(x => x.id === matchup);
@@ -98,7 +98,15 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
   // The sizing path the user picked on the timeline (e.g. "L-L-L") and the size
   // of the bet currently in question (last bet in the line). Both feed the
   // "This board" weighting; only set when the relevant bet has a size picked.
+  // Committed exact sequence (for highlighting / matching a specific row), and
+  // the filter pattern — which in "bet" mode appends a wildcard for the bet
+  // being chosen, so e.g. choosing a river size after "S-M" filters to "S-M-*".
   const sizeSeq = useMemo(() => inferSizeSequence(line), [line]);
+  const sizeSeqPattern = useMemo(
+    () => inferSizeSeqPattern(line, ctx.mode === 'bet' ? prospectiveBetStreet(line) : null),
+    [line, ctx.mode]
+  );
+  const sizeSeqDisplay = useMemo(() => patternLabel(sizeSeqPattern), [sizeSeqPattern]);
   const currentSize = useMemo(() => {
     const last = line.length ? line[line.length - 1] : null;
     return last && (last.action === 'bet' || last.action === 'raise') ? (last.sizing || 0) : 0;
@@ -178,17 +186,17 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
                 <span className="rh-pot-inline">~{realSizeData.overall.potSize.toFixed(1)}<span className="rh-pot-unit">bb</span></span>
               </>
             )}
-            {sizeSeq && (
+            {sizeSeqPattern && (
               <>
                 <span className="rh-sep">/</span>
-                <span className="rh-sizeseq" title="Inferred bet-size sequence — first bet per street (S 0-45% · M 45-70% · L 70-105% · OB 105%+)">{sizeSeq}</span>
+                <span className="rh-sizeseq" title="Bet-size sequence — first bet per street (S 0-45% · M 45-70% · L 70-105% · OB 105%+). * = a size not yet picked (the bet you're choosing).">{sizeSeqDisplay}</span>
               </>
             )}
           </div>
         </div>
       </div>
 
-      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} sizeSeqData={realSizeSeqData} boardSummary={boardSummary} boardSummaryRaise={boardSummaryRaise} sizeSeq={sizeSeq} currentSize={currentSize} />
+      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} sizeSeqData={realSizeSeqData} boardSummary={boardSummary} boardSummaryRaise={boardSummaryRaise} sizeSeq={sizeSeq} sizeSeqPattern={sizeSeqPattern} currentSize={currentSize} />
     </div>
     </EVUnitCtx.Provider>
   );
@@ -291,7 +299,7 @@ function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, rai
   );
 }
 
-function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData, sizeSeqData, boardSummary, boardSummaryRaise, sizeSeq, currentSize }) {
+function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData, sizeSeqData, boardSummary, boardSummaryRaise, sizeSeq, sizeSeqPattern, currentSize }) {
   const [tab, setTab] = useState("size");
   const isFacing = mode === "facing";
   // The bluff-raise tabs are always relevant when facing a bet (you can raise),
@@ -341,7 +349,7 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
         <RaiseSizeTable street={street} data={bluffRaiseData} label="Raise Size" />
       )}
       {tab === "size-seq" && hasSeq && (
-        <SizeSeqTable data={sizeSeqData} highlight={sizeSeq} />
+        <SizeSeqTable data={sizeSeqData} highlight={sizeSeq} pattern={sizeSeqPattern} />
       )}
     </div>
   );
@@ -696,22 +704,43 @@ const SEQ_ACCESSORS = {
   callEV: r => r.callEV,
 };
 
+// Minimum sample a sequence needs before it can win a "best bluff/value" badge,
+// so noisy low-sample rows can't claim them.
+const BEST_MIN_SAMPLE = 50;
+
 // One bet-size token per street where a bet went in (flop→turn→river), e.g.
 // "S-L-OB". Fold/Bluff EV/Call EV describe villain's response to the *final*
 // bet of the sequence, so the table answers "which sizing path folds villain
 // out most / bluffs best". Defaults to most-sampled first so the leading rows'
 // bluff EV is trustworthy — single-hand sequences carry wild EVs that would
 // otherwise dominate a Bluff-EV sort. Click Bluff EV to rank by it directly.
-function SizeSeqTable({ data, highlight }) {
+function SizeSeqTable({ data, highlight, pattern }) {
   const [sort, cycleSort] = useSortState();
-  const base = [...data.rows].sort((a, b) => b.sample - a.sample);
-  const rows = sortRows(base, sort, SEQ_ACCESSORS);
+  // Filter to sequences that fit the picked sizes (unpicked streets = wildcards).
+  // Defaults on whenever there's a pattern so it's pre-applied for every line;
+  // uncheck to see all sequences.
+  const [matchOnly, setMatchOnly] = useState(true);
+  const canFilter = !!pattern;
+  const active = canFilter && matchOnly;
 
-  // Scroll the picked sequence into view when it (or the sort) changes.
+  const base = [...data.rows].sort((a, b) => b.sample - a.sample);
+  const filtered = active ? base.filter(r => matchesSizeSeq(r.label, pattern)) : base;
+  const rows = sortRows(filtered, sort, SEQ_ACCESSORS);
+
+  // Best-size badges, picked over the rows on screen (so they respond to the
+  // filter). Only rows with enough sample are eligible, and only when there are
+  // ≥2 to compare — a lone row being "best" is meaningless. Best bluff = highest
+  // bluff EV; best value = most extracted when called (call% × size).
+  const valueScore = r => r.next.bc * r.sizeRatio;
+  const eligible = rows.filter(r => r.sample >= BEST_MIN_SAMPLE);
+  const bestBluff = eligible.length >= 2 ? eligible.reduce((b, r) => r.bluffEV > b.bluffEV ? r : b) : null;
+  const bestValue = eligible.length >= 2 ? eligible.reduce((b, r) => valueScore(r) > valueScore(b) ? r : b) : null;
+
+  // Scroll the picked sequence into view when it (or the sort/filter) changes.
   const hlRef = useRef(null);
   useEffect(() => {
     hlRef.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [highlight, sort.col, sort.dir]);
+  }, [highlight, sort.col, sort.dir, active]);
 
   return (
     <div className="data-table-wrap">
@@ -721,6 +750,12 @@ function SizeSeqTable({ data, highlight }) {
         <span><b>M</b> med</span>
         <span><b>L</b> large</span>
         <span><b>OB</b> overbet</span>
+        {canFilter && (
+          <label className="seq-filter">
+            <input type="checkbox" checked={matchOnly} onChange={e => setMatchOnly(e.target.checked)} />
+            Match {patternLabel(pattern)} ({rows.length}/{base.length})
+          </label>
+        )}
       </div>
       <table className="data-table cols-seq">
         <colgroup>
@@ -740,6 +775,9 @@ function SizeSeqTable({ data, highlight }) {
           </tr>
         </thead>
         <tbody>
+          {rows.length === 0 && (
+            <tr><td className="ta-l seq-empty" colSpan={5}>No sampled sequences match {patternLabel(pattern)}</td></tr>
+          )}
           {rows.map((row, i) => {
             const isHl = row.label === highlight;
             return (
@@ -747,6 +785,16 @@ function SizeSeqTable({ data, highlight }) {
               <td className="ta-l size-label seq-label">
                 {row.label}
                 {isHl && <span className="row-tag">picked</span>}
+                {row === bestBluff && (
+                  <Tooltip tip={<div className="tt-content"><div className="tt-note">Highest bluff EV of the shown sizes (fold% − call%×size).</div></div>}>
+                    <span className="badge-bluff">best bluff</span>
+                  </Tooltip>
+                )}
+                {row === bestValue && (
+                  <Tooltip tip={<div className="tt-content"><div className="tt-note">Extracts the most when called (call% × size) — assumes a value hand.</div></div>}>
+                    <span className="badge-value">best value</span>
+                  </Tooltip>
+                )}
               </td>
               <td className="ta-l"><SampleCell row={row} /></td>
               <td className="ta-r seq-fold">{(row.next.bf * 100).toFixed(0)}%</td>

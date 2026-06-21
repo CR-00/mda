@@ -814,6 +814,46 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .seq-legend-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 9px; color: var(--ink-3); }
 .seq-legend b { color: var(--accent); font-family: var(--font-mono); margin-right: 3px; }
+.seq-filter {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #e0c489;
+  user-select: none;
+}
+.seq-filter input { accent-color: #e0c489; cursor: pointer; }
+.seq-empty {
+  padding: 14px 16px !important;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.badge-bluff, .badge-value {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-family: var(--font-sans, inherit);
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+  cursor: help;
+  white-space: nowrap;
+}
+.badge-bluff {
+  color: #e07a5f;
+  background: rgba(224, 122, 95, 0.14);
+  border: 1px solid rgba(224, 122, 95, 0.4);
+}
+.badge-value {
+  color: var(--pos);
+  background: rgba(95, 179, 138, 0.14);
+  border: 1px solid rgba(95, 179, 138, 0.4);
+}
 .seq-fold {
   font-family: var(--font-mono);
   font-size: 12px;

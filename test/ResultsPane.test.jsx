@@ -270,6 +270,97 @@ describe('ResultsPane — size-sequence highlight', () => {
   });
 });
 
+describe('ResultsPane — size-sequence filter', () => {
+  // Multi-street spot: two-token sequences. Flop bet picked L, turn unpicked →
+  // pattern ['L', null], so only L-* rows should remain when filtering.
+  const MS_SPOT = [
+    { metric: 'Overall', value: 'Overall', action: 'B', hits: 1000, opps: 2000, pctPot: 0.6, pot: 10, nextActions: { BF: 600, BC: 350, BR: 50 } },
+    { metric: 'Size Sequence', value: 'L-S', action: 'B', hits: 400, pctPot: 0.7, pot: 10, nextActions: { BF: 250, BC: 140, BR: 10 } },
+    { metric: 'Size Sequence', value: 'L-L', action: 'B', hits: 300, pctPot: 0.8, pot: 10, nextActions: { BF: 200, BC: 90, BR: 10 } },
+    { metric: 'Size Sequence', value: 'S-L', action: 'B', hits: 200, pctPot: 0.6, pot: 10, nextActions: { BF: 120, BC: 70, BR: 10 } },
+  ];
+  // Flop bet 75% (=L) called, turn bet with no size picked → pattern ['L', null].
+  const MS_LINE = [
+    { street: 'flop', actor: 'BTN', action: 'bet', sizing: 75 },
+    { street: 'flop', actor: 'BB', action: 'call', sizing: 0 },
+    { street: 'turn', actor: 'BTN', action: 'bet', sizing: 0 },
+  ];
+
+  async function openSeqTab() {
+    await act(async () => { screen.getByRole('button', { name: /^Size sequence$/i }).click(); });
+  }
+
+  it('defaults to filtering to the matching family when the pattern has a wildcard', async () => {
+    const { container } = renderResults({ line: MS_LINE, spotData: MS_SPOT });
+    await openSeqTab();
+    const labels = [...container.querySelectorAll('td.seq-label')].map(td => td.childNodes[0].textContent.trim());
+    expect(labels).toEqual(expect.arrayContaining(['L-S', 'L-L']));
+    expect(labels).not.toContain('S-L');
+  });
+
+  it('shows all sequences when the filter is toggled off', async () => {
+    const { container } = renderResults({ line: MS_LINE, spotData: MS_SPOT });
+    await openSeqTab();
+    const checkbox = screen.getByRole('checkbox');
+    await act(async () => { checkbox.click(); });
+    const labels = [...container.querySelectorAll('td.seq-label')].map(td => td.childNodes[0].textContent.trim());
+    expect(labels).toContain('S-L');
+  });
+
+  it('badges the best bluff and best value sizes among shown rows', async () => {
+    // Three S-M-* river sizes, designed so best bluff ≠ best value.
+    //  value = call% × size:  S-M-S 0.8×0.3=.24, S-M-L 0.4×0.8=.32, S-M-OB 0.04×1.5=.06 → L wins
+    //  bluff = fold% − call%×size: S-M-OB 0.96−0.06=.90 highest → OB wins
+    const SPOT = [
+      { metric: 'Overall', value: 'Overall', action: 'B', hits: 1000, opps: 2000, pctPot: 0.6, pot: 10, nextActions: { BF: 600, BC: 350, BR: 50 } },
+      { metric: 'Size Sequence', value: 'S-M-S', action: 'B', hits: 500, pctPot: 0.30, pot: 10, nextActions: { BF: 100, BC: 400, BR: 0 } },
+      { metric: 'Size Sequence', value: 'S-M-L', action: 'B', hits: 500, pctPot: 0.80, pot: 10, nextActions: { BF: 300, BC: 200, BR: 0 } },
+      { metric: 'Size Sequence', value: 'S-M-OB', action: 'B', hits: 500, pctPot: 1.50, pot: 10, nextActions: { BF: 480, BC: 20, BR: 0 } },
+    ];
+    const LINE = [
+      { street: 'flop', actor: 'BB', action: 'bet', sizing: 33 },
+      { street: 'flop', actor: 'BTN', action: 'call', sizing: 0 },
+      { street: 'turn', actor: 'BB', action: 'bet', sizing: 66 },
+      { street: 'turn', actor: 'BTN', action: 'call', sizing: 0 },
+    ];
+    const { container } = renderResults({ line: LINE, spotData: SPOT, hero: 'BB' });
+    await openSeqTab();
+    const rowOf = (label) => [...container.querySelectorAll('tbody tr')]
+      .find(tr => tr.querySelector('td.seq-label')?.textContent.startsWith(label));
+    expect(within(rowOf('S-M-OB')).getByText(/best bluff/i)).toBeInTheDocument();
+    expect(within(rowOf('S-M-L')).getByText(/best value/i)).toBeInTheDocument();
+    // the two badges are on different rows
+    expect(rowOf('S-M-OB').querySelector('.badge-value')).toBeNull();
+    expect(rowOf('S-M-L').querySelector('.badge-bluff')).toBeNull();
+  });
+
+  // The reported scenario: SB bet flop S / turn M, both called, now choosing a
+  // river size (bet mode). The data has 3-token sequences; the filter should
+  // append a wildcard for the river and show only S-M-* so river sizes compare.
+  it('filters to <committed>-* when choosing the next bet size (bet mode)', async () => {
+    const SPOT3 = [
+      { metric: 'Overall', value: 'Overall', action: 'B', hits: 1000, opps: 2000, pctPot: 0.6, pot: 10, nextActions: { BF: 600, BC: 350, BR: 50 } },
+      { metric: 'Size Sequence', value: 'S-M-S', action: 'B', hits: 300, pctPot: 0.3, pot: 10, nextActions: { BF: 200, BC: 90, BR: 10 } },
+      { metric: 'Size Sequence', value: 'S-M-L', action: 'B', hits: 200, pctPot: 0.8, pot: 10, nextActions: { BF: 150, BC: 45, BR: 5 } },
+      { metric: 'Size Sequence', value: 'S-L-L', action: 'B', hits: 400, pctPot: 0.8, pot: 10, nextActions: { BF: 260, BC: 130, BR: 10 } },
+    ];
+    // hero = BB (oop) bet flop 33% (S) / turn 66% (M), BTN called both → river decision.
+    const LINE3 = [
+      { street: 'flop', actor: 'BB', action: 'bet', sizing: 33 },
+      { street: 'flop', actor: 'BTN', action: 'call', sizing: 0 },
+      { street: 'turn', actor: 'BB', action: 'bet', sizing: 66 },
+      { street: 'turn', actor: 'BTN', action: 'call', sizing: 0 },
+    ];
+    const { container } = renderResults({ line: LINE3, spotData: SPOT3, hero: 'BB' });
+    await openSeqTab();
+    const labels = [...container.querySelectorAll('td.seq-label')].map(td => td.childNodes[0].textContent.trim());
+    expect(labels).toEqual(expect.arrayContaining(['S-M-S', 'S-M-L']));
+    expect(labels).not.toContain('S-L-L');
+    // the wildcard pattern is advertised (header + filter checkbox label)
+    expect(screen.getAllByText(/S-M-\*/).length).toBeGreaterThan(0);
+  });
+});
+
 describe('ResultsPane — faced-size highlight on by-size tables', () => {
   // hero (BTN) bet 50% → villain (BB) faces a 50% bet.
   const FACE_LINE = [{ street: 'flop', actor: 'BTN', action: 'bet', sizing: 50 }];
