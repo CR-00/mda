@@ -11,8 +11,9 @@ function fmtEV(evBB, potSize, evUnit) {
   return { v: evBB, dp: 2, suffix: ' BB' };
 }
 import { MATCHUPS, fmtCount } from '../lib/data';
-import { adaptTableData, computeBoardAdjusted } from '../lib/adaptData';
+import { adaptTableData, computeBoardAdjusted, applySizeSignals } from '../lib/adaptData';
 import { getBoardTextures } from '../lib/boardTextures';
+import { inferSizeSequence } from '../lib/sizing';
 
 function detectMode(line, hero, matchup) {
   const m = MATCHUPS.find(x => x.id === matchup);
@@ -78,6 +79,64 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
     () => Array.isArray(spotData) ? adaptTableData(spotData, 'Size Sequence') : null,
     [spotData]
   );
+  const raiseSizeSeqData = useMemo(
+    () => Array.isArray(raiseSpotData) ? adaptTableData(raiseSpotData, 'Size Sequence') : null,
+    [raiseSpotData]
+  );
+
+  // Plain Overall rows — the root of the sizing hierarchy (size/path deviations
+  // are measured from here, then layered onto the board-adjusted row).
+  const plainOverall = useMemo(
+    () => Array.isArray(spotData) ? adaptTableData(spotData, 'Overall')?.overall ?? null : null,
+    [spotData]
+  );
+  const raisePlainOverall = useMemo(
+    () => Array.isArray(raiseSpotData) ? adaptTableData(raiseSpotData, 'Overall')?.overall ?? null : null,
+    [raiseSpotData]
+  );
+
+  // The sizing path the user picked on the timeline (e.g. "L-L-L") and the size
+  // of the bet currently in question (last bet in the line). Both feed the
+  // "This board" weighting; only set when the relevant bet has a size picked.
+  const sizeSeq = useMemo(() => inferSizeSequence(line), [line]);
+  const currentSize = useMemo(() => {
+    const last = line.length ? line[line.length - 1] : null;
+    return last && (last.action === 'bet' || last.action === 'raise') ? (last.sizing || 0) : 0;
+  }, [line]);
+
+  const seqRow = useMemo(
+    () => (sizeSeq && realSizeSeqData) ? realSizeSeqData.rows.find(r => r.label === sizeSeq) ?? null : null,
+    [sizeSeq, realSizeSeqData]
+  );
+  const raiseSeqRow = useMemo(
+    () => (sizeSeq && raiseSizeSeqData) ? raiseSizeSeqData.rows.find(r => r.label === sizeSeq) ?? null : null,
+    [sizeSeq, raiseSizeSeqData]
+  );
+  // Match the picked size against a "by size" table's rows (labels like "75%").
+  const matchSize = (data) => (currentSize && data)
+    ? data.rows.find(r => Math.round(parseFloat(r.label)) === currentSize) ?? null
+    : null;
+  const sizeRow = useMemo(() => matchSize(realSizeData), [realSizeData, currentSize]);
+  const raiseSizeRow = useMemo(() => matchSize(realRaiseData), [realRaiseData, currentSize]);
+
+  // "This board" summary rows, layered toward the picked sizing — exact bet size
+  // first (large sample, fine granularity), then the full path (its residual
+  // beyond that size). Standalone tables keep the pure board view; only the
+  // summary's board column folds sizing in.
+  const boardSummary = useMemo(
+    () => applySizeSignals(realTextureData?.overall, plainOverall, [
+      sizeRow && { kind: 'size', label: `${currentSize}%`, row: sizeRow, sample: sizeRow.sample },
+      seqRow && { kind: 'path', label: sizeSeq, row: seqRow, sample: seqRow.sample },
+    ]),
+    [realTextureData, plainOverall, sizeRow, seqRow, currentSize, sizeSeq]
+  );
+  const boardSummaryRaise = useMemo(
+    () => applySizeSignals(realRaiseTextureData?.overall, raisePlainOverall, [
+      raiseSizeRow && { kind: 'size', label: `${currentSize}%`, row: raiseSizeRow, sample: raiseSizeRow.sample },
+      raiseSeqRow && { kind: 'path', label: sizeSeq, row: raiseSeqRow, sample: raiseSeqRow.sample },
+    ]),
+    [realRaiseTextureData, raisePlainOverall, raiseSizeRow, raiseSeqRow, currentSize, sizeSeq]
+  );
 
   if (spotData === null) {
     return (
@@ -119,11 +178,17 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
                 <span className="rh-pot-inline">~{realSizeData.overall.potSize.toFixed(1)}<span className="rh-pot-unit">bb</span></span>
               </>
             )}
+            {sizeSeq && (
+              <>
+                <span className="rh-sep">/</span>
+                <span className="rh-sizeseq" title="Inferred bet-size sequence — first bet per street (S 0-45% · M 45-70% · L 70-105% · OB 105%+)">{sizeSeq}</span>
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} sizeSeqData={realSizeSeqData} />
+      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} sizeSeqData={realSizeSeqData} boardSummary={boardSummary} boardSummaryRaise={boardSummaryRaise} sizeSeq={sizeSeq} currentSize={currentSize} />
     </div>
     </EVUnitCtx.Provider>
   );
@@ -131,9 +196,26 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
 
 // ─── Table tabs ──────────────────────────────────────────────────────────────
 
-function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, raiseTextureData }) {
+function SizeSignalsTip({ signals }) {
+  return (
+    <div className="tt-content">
+      {signals.map((s, i) => (
+        <div className="tt-kv" key={i}>
+          <span>{s.kind === 'path' ? `Path ${s.label}` : `Bet ${s.label}`}</span>
+          <span>{fmtCount(s.sample)} · {Math.round(s.w * 100)}%</span>
+        </div>
+      ))}
+      <div className="tt-sep" />
+      <div className="tt-note">Sizing is layered onto the board read: the exact bet size first, then the full path adds only what it shows beyond that size. Each layer is weighted n ÷ (n + 500), so bigger samples count more.</div>
+    </div>
+  );
+}
+
+function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, raiseTextureData, boardSummary, boardSummaryRaise, sizeSeq }) {
   const avg = sizeData?.overall;
-  const board = textureData?.overall;
+  const board = boardSummary?.row ?? textureData?.overall;
+  const boardRaise = boardSummaryRaise?.row ?? raiseTextureData?.overall;
+  const seqWeight = boardSummary?.weight ?? 0;
   const evUnit = useContext(EVUnitCtx);
   if (!avg) return null;
 
@@ -149,16 +231,30 @@ function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, rai
       ];
 
   const actionLabel = mode === "bet" ? "bet" : (facingAction ?? "bet");
+  const seqActive = !!(sizeSeq && seqWeight > 0);
   const cols = [
     { label: "Average vs " + actionLabel, row: avg, raise: raiseData?.overall },
-    ...(board ? [{ label: "This board vs " + actionLabel, row: board, raise: raiseTextureData?.overall }] : []),
+    ...(board ? [{
+      label: seqActive ? `This board · ${sizeSeq} vs ${actionLabel}` : `This board vs ${actionLabel}`,
+      row: board,
+      raise: boardRaise,
+      weight: seqActive ? seqWeight : 0,
+      signals: boardSummary?.signals,
+    }] : []),
   ];
 
   return (
     <div className="spot-summary">
-      {cols.map(({ label, row, raise }) => (
+      {cols.map(({ label, row, raise, weight, signals }) => (
         <div key={label} className="ss-col">
-          <div className="ss-col-label">{label}</div>
+          <div className="ss-col-label">
+            {label}
+            {weight > 0 && signals?.length > 0 && (
+              <Tooltip tip={<SizeSignalsTip signals={signals} />}>
+                <span className="ss-seq-weight">{Math.round(weight * 100)}%</span>
+              </Tooltip>
+            )}
+          </div>
           <div className="ss-stats">
             <div className="ss-stat">
               <span className="ss-stat-label">Fold</span>
@@ -195,7 +291,7 @@ function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, rai
   );
 }
 
-function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData, sizeSeqData }) {
+function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseData, raiseTextureData, bluffRaiseData, sizeSeqData, boardSummary, boardSummaryRaise, sizeSeq, currentSize }) {
   const [tab, setTab] = useState("size");
   const isFacing = mode === "facing";
   // The bluff-raise tabs are always relevant when facing a bet (you can raise),
@@ -216,7 +312,7 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
 
   return (
     <div className="table-tabs">
-      <SpotSummary mode={mode} facingAction={facingAction} sizeData={sizeData} textureData={textureData} raiseData={raiseData} raiseTextureData={raiseTextureData} />
+      <SpotSummary mode={mode} facingAction={facingAction} sizeData={sizeData} textureData={textureData} raiseData={raiseData} raiseTextureData={raiseTextureData} boardSummary={boardSummary} boardSummaryRaise={boardSummaryRaise} sizeSeq={sizeSeq} />
       <div className="ttabs-bar">
         {ttab("size", isFacing ? "Call EV by size" : "By size")}
         {ttab("texture", isFacing ? "Call EV by texture" : "By texture")}
@@ -228,7 +324,7 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
       {tab === "size" && (
         mode === "bet"
           ? <BetSizeTable street={street} data={sizeData} />
-          : <FacingSizeTable street={street} data={sizeData} />
+          : <FacingSizeTable street={street} data={sizeData} highlightSize={currentSize} />
       )}
       {tab === "texture" && (
         mode === "bet"
@@ -236,7 +332,7 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
           : <FacingTextureTable street={street} data={textureData} />
       )}
       {tab === "raise-size" && hasVsSize && (
-        <RaiseSizeTable street={street} data={raiseData} label="Bet Size" />
+        <RaiseSizeTable street={street} data={raiseData} label="Bet Size" highlightSize={currentSize} />
       )}
       {tab === "raise-texture" && hasVsSize && (
         <RaiseSizeTable street={street} data={raiseTextureData} label="Texture" />
@@ -245,7 +341,7 @@ function TableTabs({ mode, street, facingAction, sizeData, textureData, raiseDat
         <RaiseSizeTable street={street} data={bluffRaiseData} label="Raise Size" />
       )}
       {tab === "size-seq" && hasSeq && (
-        <SizeSeqTable data={sizeSeqData} />
+        <SizeSeqTable data={sizeSeqData} highlight={sizeSeq} />
       )}
     </div>
   );
@@ -427,10 +523,15 @@ function BetSizeTable({ street, data }) {
   );
 }
 
-function BetSizeRow({ row, isOverall }) {
+// True when a size-table row label (e.g. "75% ") matches the faced bet size.
+function sizeMatches(label, size) {
+  return !!size && Math.round(parseFloat(label)) === size;
+}
+
+function BetSizeRow({ row, isOverall, highlight, rowRef }) {
   return (
-    <tr className={isOverall ? "overall-row" : ""}>
-      <td className="ta-l size-label">{row.label}</td>
+    <tr className={(isOverall ? "overall-row" : "") + (highlight ? " row-hl" : "")} ref={rowRef || null}>
+      <td className="ta-l size-label">{row.label}{highlight && <span className="row-tag">facing</span>}</td>
       <td className="ta-l"><SampleCell row={row} /></td>
       <td className="ta-r">
         <Tooltip tip={<BluffEVTip row={row} />}>
@@ -441,8 +542,10 @@ function BetSizeRow({ row, isOverall }) {
   );
 }
 
-function RaiseSizeTable({ data, label }) {
+function RaiseSizeTable({ data, label, highlightSize }) {
   const [sort, cycleSort] = useSortState();
+  const hlRef = useRef(null);
+  useEffect(() => { hlRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [highlightSize, sort.col, sort.dir]);
   if (!data) return null;
   const rows = sortRows(data.rows, sort, BET_ACCESSORS);
 
@@ -463,7 +566,10 @@ function RaiseSizeTable({ data, label }) {
         </thead>
         <tbody>
           <BetSizeRow row={data.overall} isOverall />
-          {rows.map((row, i) => <BetSizeRow key={i} row={row} />)}
+          {rows.map((row, i) => {
+            const hl = sizeMatches(row.label, highlightSize);
+            return <BetSizeRow key={i} row={row} highlight={hl} rowRef={hl ? hlRef : null} />;
+          })}
         </tbody>
       </table>
     </div>
@@ -505,8 +611,10 @@ const FACING_ACCESSORS = {
   callEV: r => r.callEV,
 };
 
-function FacingSizeTable({ street, data }) {
+function FacingSizeTable({ street, data, highlightSize }) {
   const [sort, cycleSort] = useSortState();
+  const hlRef = useRef(null);
+  useEffect(() => { hlRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [highlightSize, sort.col, sort.dir]);
   if (!data) return null;
   const rows = sortRows(data.rows, sort, FACING_ACCESSORS);
 
@@ -527,7 +635,10 @@ function FacingSizeTable({ street, data }) {
         </thead>
         <tbody>
           <FacingRow row={data.overall} isOverall />
-          {rows.map((row, i) => <FacingRow key={i} row={row} />)}
+          {rows.map((row, i) => {
+            const hl = sizeMatches(row.label, highlightSize);
+            return <FacingRow key={i} row={row} highlight={hl} rowRef={hl ? hlRef : null} />;
+          })}
         </tbody>
       </table>
     </div>
@@ -563,10 +674,10 @@ function FacingTextureTable({ street, data }) {
   );
 }
 
-function FacingRow({ row, isOverall, isTexture }) {
+function FacingRow({ row, isOverall, isTexture, highlight, rowRef }) {
   return (
-    <tr className={isOverall ? "overall-row" : ""}>
-      <td className="ta-l size-label">{row.label}</td>
+    <tr className={(isOverall ? "overall-row" : "") + (highlight ? " row-hl" : "")} ref={rowRef || null}>
+      <td className="ta-l size-label">{row.label}{highlight && <span className="row-tag">facing</span>}</td>
       <td className="ta-l"><SampleCell row={row} /></td>
       <td className="ta-r">
         <Tooltip tip={<CallEVTip row={row} />}>
@@ -591,10 +702,16 @@ const SEQ_ACCESSORS = {
 // out most / bluffs best". Defaults to most-sampled first so the leading rows'
 // bluff EV is trustworthy — single-hand sequences carry wild EVs that would
 // otherwise dominate a Bluff-EV sort. Click Bluff EV to rank by it directly.
-function SizeSeqTable({ data }) {
+function SizeSeqTable({ data, highlight }) {
   const [sort, cycleSort] = useSortState();
   const base = [...data.rows].sort((a, b) => b.sample - a.sample);
   const rows = sortRows(base, sort, SEQ_ACCESSORS);
+
+  // Scroll the picked sequence into view when it (or the sort) changes.
+  const hlRef = useRef(null);
+  useEffect(() => {
+    hlRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [highlight, sort.col, sort.dir]);
 
   return (
     <div className="data-table-wrap">
@@ -623,9 +740,14 @@ function SizeSeqTable({ data }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
-              <td className="ta-l size-label seq-label">{row.label}</td>
+          {rows.map((row, i) => {
+            const isHl = row.label === highlight;
+            return (
+            <tr key={i} className={isHl ? "row-hl" : ""} ref={isHl ? hlRef : null}>
+              <td className="ta-l size-label seq-label">
+                {row.label}
+                {isHl && <span className="row-tag">picked</span>}
+              </td>
               <td className="ta-l"><SampleCell row={row} /></td>
               <td className="ta-r seq-fold">{(row.next.bf * 100).toFixed(0)}%</td>
               <td className="ta-r">
@@ -639,7 +761,8 @@ function SizeSeqTable({ data }) {
                 </Tooltip>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

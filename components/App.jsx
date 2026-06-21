@@ -44,6 +44,7 @@ function deriveAutoFilters(board) {
 const NAV_VIEWS = [
   { id: 'analyzer', label: 'Analyzer' },
   { id: 'explorer', label: 'Line Explorer' },
+  { id: 'trainer', label: 'Trainer', href: '/trainer', needs: 'spots' },
   { id: 'spots', label: 'Spot Browser', href: '/spots', needs: 'spots' },
   { id: 'exploits', label: 'Exploits', href: '/exploits', needs: 'exploits' },
   { id: 'summary', label: 'Strategy Summary', href: '/summary', needs: 'summary' },
@@ -121,7 +122,7 @@ function NavMenu({ view, onSetView }) {
 // URL-writing effect, which would otherwise clobber the params back to defaults
 // (especially under React StrictMode's double-invoked effects).
 function readInitialState() {
-  const d = { ipPos: "LP", oopPos: "BB", potType: "srp", playerType: "reg", hero: "LP", chips: [], board: DEFAULT_BOARD };
+  const d = { ipPos: "LP", oopPos: "BB", potType: "srp", playerType: "reg", hero: "LP", chips: [], sizes: {}, board: DEFAULT_BOARD };
   if (typeof window === 'undefined') return d;
   const p = new URLSearchParams(window.location.search);
   if (p.get('ip')) d.ipPos = p.get('ip');
@@ -130,6 +131,12 @@ function readInitialState() {
   if (p.get('player')) d.playerType = SHOW_FISH ? p.get('player') : 'reg';
   if (p.get('hero')) d.hero = p.get('hero');
   if (p.get('line')) d.chips = p.get('line').split('');
+  if (p.get('sizes')) {
+    for (const part of p.get('sizes').split('-')) {
+      const [i, v] = part.split('x');
+      if (i !== '' && v) d.sizes[i] = Number(v);
+    }
+  }
   if (p.get('board')) d.board = parseBoard(p.get('board'));
   return d;
 }
@@ -145,6 +152,7 @@ export default function App() {
   const [playerType, setPlayerType] = useState(initial.current.playerType);
   const [hero, setHero] = useState(initial.current.hero);
   const [chips, setChips] = useState(initial.current.chips);
+  const [sizes, setSizes] = useState(initial.current.sizes);
 
   const matchup = `${ipPos.toLowerCase()}_${oopPos.toLowerCase()}_${potType}`;
   if (!MATCHUPS.find(x => x.id === matchup)) {
@@ -333,10 +341,17 @@ export default function App() {
     p.set('player', playerType);
     p.set('hero', hero);
     if (chips.length) p.set('line', chips.join(''));
+    // Only persist sizes for positions still in the line (stale entries are
+    // pruned a render later, but filtering here keeps the URL consistent now).
+    const sizeStr = Object.entries(sizes)
+      .filter(([i]) => Number(i) < chips.length)
+      .map(([i, v]) => `${i}x${v}`)
+      .join('-');
+    if (sizeStr) p.set('sizes', sizeStr);
     const boardStr = serializeBoard(board);
     if (boardStr) p.set('board', boardStr);
     window.history.replaceState(null, '', '?' + p.toString());
-  }, [ipPos, oopPos, potType, playerType, hero, chips, board]);
+  }, [ipPos, oopPos, potType, playerType, hero, chips, sizes, board]);
 
   const handleUploadSuccess = () => setFetchSeq(s => s + 1);
 
@@ -363,6 +378,7 @@ export default function App() {
                 board={board} setBoard={setBoard}
                 clearBoardOnReset={settings.clearBoardOnReset}
                 chips={chips} setChips={setChips}
+                sizes={sizes} setSizes={setSizes}
               />
             </section>
 

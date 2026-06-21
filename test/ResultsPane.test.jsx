@@ -237,3 +237,68 @@ describe('ResultsPane — bet table EV column', () => {
     expect(all.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('ResultsPane — size-sequence highlight', () => {
+  // Minimal spot with two Size-Sequence rows. A flop bet of 50% pot → token "M".
+  const SEQ_SPOT = [
+    { metric: 'Overall', value: 'Overall', action: 'B', hits: 1000, opps: 2000, pctPot: 0.5, pot: 10, nextActions: { BF: 600, BC: 350, BR: 50 } },
+    { metric: 'Size Sequence', value: 'S', action: 'B', hits: 300, opps: 600, pctPot: 0.3, pot: 10, nextActions: { BF: 200, BC: 90, BR: 10 } },
+    { metric: 'Size Sequence', value: 'M', action: 'B', hits: 200, opps: 400, pctPot: 0.5, pot: 10, nextActions: { BF: 120, BC: 70, BR: 10 } },
+  ];
+  // A single flop bet sized 50% (token M), faced by hero.
+  const SEQ_LINE = [{ street: 'flop', actor: 'BTN', action: 'bet', sizing: 50 }];
+
+  async function openSeqTab() {
+    const tab = screen.getByRole('button', { name: /^Size sequence$/i });
+    await act(async () => { tab.click(); });
+  }
+
+  it('marks the picked sequence row and tags it', async () => {
+    const { container } = renderResults({ line: SEQ_LINE, spotData: SEQ_SPOT });
+    await openSeqTab();
+    const hl = container.querySelectorAll('tr.row-hl');
+    expect(hl).toHaveLength(1);
+    expect(within(hl[0]).getByText('M')).toBeInTheDocument();
+    expect(within(hl[0]).getByText(/picked/i)).toBeInTheDocument();
+  });
+
+  it('does not highlight any row when no size is picked', async () => {
+    const noSize = [{ street: 'flop', actor: 'BTN', action: 'bet', sizing: 0 }];
+    const { container } = renderResults({ line: noSize, spotData: SEQ_SPOT });
+    await openSeqTab();
+    expect(container.querySelectorAll('tr.row-hl')).toHaveLength(0);
+  });
+});
+
+describe('ResultsPane — faced-size highlight on by-size tables', () => {
+  // hero (BTN) bet 50% → villain (BB) faces a 50% bet.
+  const FACE_LINE = [{ street: 'flop', actor: 'BTN', action: 'bet', sizing: 50 }];
+  const FACE_SPOT = [
+    { metric: 'Overall', value: 'Overall', action: 'B', hits: 1000, opps: 2000, pctPot: 0.5, pot: 10, catchVevPct: 0.1, nextActions: { BF: 600, BC: 350, BR: 50 } },
+    { metric: 'Size', value: '33% ', action: 'B', hits: 300, pctPot: 0.33, pot: 10, catchVevPct: 0.05, nextActions: { BF: 200, BC: 90, BR: 10 } },
+    { metric: 'Size', value: '50% ', action: 'B', hits: 200, pctPot: 0.5, pot: 10, catchVevPct: 0.12, nextActions: { BF: 120, BC: 70, BR: 10 } },
+    { metric: 'Size', value: '75% ', action: 'B', hits: 150, pctPot: 0.75, pot: 10, catchVevPct: 0.2, nextActions: { BF: 110, BC: 35, BR: 5 } },
+  ];
+  const FACE_RAISE = [
+    { metric: 'Overall', value: 'Overall', action: 'F', hits: 500, pctPot: 0.5, pot: 10, bluffVev: 8, nextActions: {} },
+    { metric: 'Flop Bet Size', value: '33% ', action: 'F', hits: 200, pctPot: 0.33, pot: 10, bluffVev: 4, nextActions: {} },
+    { metric: 'Flop Bet Size', value: '50% ', action: 'F', hits: 150, pctPot: 0.5, pot: 10, bluffVev: 9, nextActions: {} },
+  ];
+
+  it('highlights the faced size on the Call EV by size table (default tab)', () => {
+    const { container } = renderResults({ line: FACE_LINE, spotData: FACE_SPOT });
+    const hl = container.querySelectorAll('tr.row-hl');
+    expect(hl).toHaveLength(1);
+    expect(within(hl[0]).getByText('50%')).toBeInTheDocument();
+    expect(within(hl[0]).getByText(/facing/i)).toBeInTheDocument();
+  });
+
+  it('highlights the faced size on the Bluff EV vs size table', async () => {
+    const { container } = renderResults({ line: FACE_LINE, spotData: FACE_SPOT, raiseSpotData: FACE_RAISE });
+    const tab = screen.getByRole('button', { name: /Bluff EV vs size/i });
+    await act(async () => { tab.click(); });
+    const hl = container.querySelectorAll('tr.row-hl');
+    expect(hl).toHaveLength(1);
+    expect(within(hl[0]).getByText('50%')).toBeInTheDocument();
+  });
+});

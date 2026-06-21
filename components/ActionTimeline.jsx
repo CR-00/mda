@@ -1,5 +1,6 @@
 import { useEffect, forwardRef, useImperativeHandle } from 'react';
 import { MATCHUPS } from '../lib/data';
+import { SIZE_PRESETS } from '../lib/sizing';
 
 const STREETS = ["flop", "turn", "river"];
 const ACTION_LABELS = { x: "check", c: "call", f: "fold", b: "bet", r: "raise" };
@@ -58,7 +59,7 @@ function annotatePath(chips, ipPos, oopPos) {
 }
 
 
-const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, matchup, hero, board, setBoard, clearBoardOnReset, chips, setChips }, ref) {
+const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, matchup, hero, board, setBoard, clearBoardOnReset, chips, setChips, sizes, setSizes }, ref) {
   const m = MATCHUPS.find(x => x.id === matchup);
   const ipPos = m.ip, oopPos = m.oop;
 
@@ -70,18 +71,43 @@ const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, match
 
   const { nodes, frontier, terminated } = annotatePath(chips, ipPos, oopPos);
 
+  // Optional per-betting-action sizes (% of pot), keyed by node index. Owned by
+  // App so they persist in the URL; used to infer the size sequence shown in the
+  // results header.
+  const setSize = (idx, pct) => setSizes(prev => {
+    const next = { ...prev };
+    if (pct == null) delete next[idx]; else next[idx] = pct;
+    return next;
+  });
+
+  // Drop sizes whose node no longer exists or is no longer a bet/raise (after a
+  // trim or an alternate-action switch), so stale picks don't resurface.
+  useEffect(() => {
+    setSizes(prev => {
+      let changed = false;
+      const next = {};
+      for (const k of Object.keys(prev)) {
+        const n = nodes[+k];
+        if (n && (n.action === 'bet' || n.action === 'raise')) next[k] = prev[k];
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [chips]);
+
   useEffect(() => {
     const out = [];
     let prevStreet = null;
-    for (const n of nodes) {
+    nodes.forEach((n, i) => {
       if (prevStreet && n.street !== prevStreet) {
         out.push({ street: n.street, actor: oopPos, action: "_street_start", sizing: 0, marker: true });
       }
-      out.push({ street: n.street, actor: n.actor, action: n.action, sizing: 0 });
+      const isBet = n.action === "bet" || n.action === "raise";
+      out.push({ street: n.street, actor: n.actor, action: n.action, sizing: isBet ? (sizes[i] ?? 0) : 0 });
       prevStreet = n.street;
-    }
+    });
     setLine(out);
-  }, [chips, ipPos, oopPos]);
+  }, [chips, ipPos, oopPos, sizes]);
 
   const trimTo = (idx) => setChips(chips.slice(0, idx));
   const handleFrontierPick = (ch) => {
@@ -117,6 +143,8 @@ const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, match
                         onSelectPath={() => trimTo(i + 1)}
                         onSelectAlt={(ch) => handleAltPick(i, ch)}
                         actor={n.actor}
+                        size={sizes[i]}
+                        onSetSize={(pct) => setSize(i, pct)}
                       />
                     ))}
                     {hasFrontier && (
@@ -144,7 +172,8 @@ const ActionTimeline = forwardRef(function ActionTimeline({ line, setLine, match
 
 export default ActionTimeline;
 
-function TreeColumn({ selected, alternates, onSelectPath, onSelectAlt, actor }) {
+function TreeColumn({ selected, alternates, onSelectPath, onSelectAlt, actor, size, onSetSize }) {
+  const isBet = selected.action === "bet" || selected.action === "raise";
   return (
     <div className="tcol">
       <button
@@ -155,6 +184,17 @@ function TreeColumn({ selected, alternates, onSelectPath, onSelectAlt, actor }) 
         <span className="tn-actor">{actor}</span>
         <span className="tn-act">{selected.action}</span>
       </button>
+      {isBet && (
+        <select
+          className="tn-size-select"
+          value={size ?? ""}
+          onChange={(e) => onSetSize(e.target.value === "" ? null : Number(e.target.value))}
+          title="Pick a bet size to infer the sizing sequence"
+        >
+          <option value="">size?</option>
+          {SIZE_PRESETS.map(p => <option key={p} value={p}>{p}%</option>)}
+        </select>
+      )}
       {alternates.length > 0 && (
         <div className="tn-alts">
           <div className="tn-alts-stem" />
