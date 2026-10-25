@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { SHOW_FISH } from '../lib/flags';
+import { keyGroup } from '../lib/spotMatch';
 
 export const POT_TYPES = [
   { id: "srp", label: "SRP", full: "Single raised" },
@@ -13,13 +14,18 @@ const COMMON_SPOTS = [
   { id: "ep_bb_srp",     label: "EP vs BB",         ip: "EP", oop: "BB",     pot: "srp" },
   { id: "lp_blinds_3bp", label: "LP vs Blinds 3BP", ip: "LP", oop: "Blinds", pot: "3bp" },
   { id: "ep_blinds_3bp", label: "EP vs Blinds 3BP", ip: "EP", oop: "Blinds", pot: "3bp" },
+  { id: "lp_lp_3bp",     label: "LP vs LP 3BP",     ip: "BTN", oop: "CO",    pot: "3bp" },
+  { id: "ep_lp_3bp",     label: "EP vs LP 3BP",     ip: "LP", oop: "EP",     pot: "3bp" },
   { id: "bvb_srp",       label: "BvB",              ip: "BB", oop: "SB",     pot: "srp" },
   { id: "bvb_3bp",       label: "BvB 3BP",          ip: "BB", oop: "SB",     pot: "3bp" },
 ];
 
 // SRP OOP is always BB; 3bp OOP vs LP/EP collapses BB+SB into 'Blinds'; BvB OOP is SB.
+// Non-blind 3bp: CO vs BTN (LP vs LP) and EP vs LP.
 export function getOopOptions(ipPos, potType) {
   if (ipPos === 'BB') return [{ id: 'SB', label: 'SB' }];
+  if (ipPos === 'BTN') return [{ id: 'CO', label: 'CO' }];
+  if (potType === '3bp' && ipPos === 'LP') return [{ id: 'Blinds', label: 'Blinds' }, { id: 'EP', label: 'EP' }];
   if (potType === '3bp') return [{ id: 'Blinds', label: 'Blinds' }];
   return [{ id: 'BB', label: 'BB' }];
 }
@@ -62,7 +68,7 @@ export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType,
   }, [coverageSeq]);
 
   // Matchup base key (no perspective), e.g. "Blinds_vs_EP_3bp_reg".
-  const spotBase = (s) => `${s.oop}_vs_${s.ip}_${s.pot}_${playerType}`;
+  const spotBase = (s) => `${keyGroup(s.oop)}_vs_${keyGroup(s.ip)}_${s.pot}_${playerType}`;
   const isUnavailable = (s) => availBases != null && !availBases.has(spotBase(s));
 
   return (

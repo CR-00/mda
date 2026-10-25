@@ -10,6 +10,8 @@ describe('matchupToKey', () => {
     expect(matchupToKey('BB', 'LP', 'srp', 'reg', 'oop')).toBe('BB_vs_LP_srp_reg_oop');
     expect(matchupToKey('BB', 'LP', '3bp', 'fish', 'ip')).toBe('BB_vs_LP_3bp_fish_ip');
     expect(matchupToKey('SB', 'LP', '3bp', 'reg', 'oop')).toBe('SB_vs_LP_3bp_reg_oop');
+    expect(matchupToKey('CO', 'BTN', '3bp', 'reg', 'ip')).toBe('LP_vs_LP_3bp_reg_ip');
+    expect(matchupToKey('EP', 'LP', '3bp', 'reg', 'oop')).toBe('EP_vs_LP_3bp_reg_oop');
   });
 
   it('defaults perspective to ip', () => {
