@@ -41,12 +41,13 @@ const PLAYER_TYPES = [
   ...(SHOW_FISH ? [{ id: "fish", label: "FISH" }] : []),
 ];
 
-export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType, setPotType, playerType, setPlayerType, nav }) {
+export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType, setPotType, playerType, setPlayerType, nav, coverageSeq }) {
   const activeSpot = COMMON_SPOTS.find(s => s.ip === ipPos && s.oop === oopPos && s.pot === potType)?.id;
   const selectSpot = (s) => { setIpPos(s.ip); setOopPos(s.oop); setPotType(s.pot); };
 
   // Which matchups have uploaded data — drives disabling spot tabs with no data.
-  // null = unknown (loading); don't disable until we know.
+  // null = unknown (loading); don't disable until we know. Refetched whenever
+  // coverageSeq bumps (after an upload) so newly uploaded spots unlock.
   const [availBases, setAvailBases] = useState(null);
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +59,7 @@ export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType,
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [coverageSeq]);
 
   // Matchup base key (no perspective), e.g. "Blinds_vs_EP_3bp_reg".
   const spotBase = (s) => `${s.oop}_vs_${s.ip}_${s.pot}_${playerType}`;

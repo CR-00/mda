@@ -364,6 +364,7 @@ export default function App() {
           potType={potType} setPotType={setPotType}
           playerType={playerType} setPlayerType={setPlayerType}
           nav={<NavMenu view={view} onSetView={setView} />}
+          coverageSeq={fetchSeq}
         />
 
         {view === 'explorer' ? (
@@ -446,7 +447,7 @@ export default function App() {
       )}
 
       {coverageOpen && (
-        <CoverageModal onClose={() => setCoverageOpen(false)} />
+        <CoverageModal onClose={() => setCoverageOpen(false)} onUploaded={handleUploadSuccess} />
       )}
 
       {settingsOpen && (

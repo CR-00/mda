@@ -29,12 +29,19 @@ export default async function handler(req, res) {
     rawOop = 'SB';
     rawIp = 'BB';
   }
-  const ipGroup = LP.has(rawIp) ? 'LP' : EP.has(rawIp) ? 'EP' : rawIp;
+  // snap's "HJ/LJ vs IP" group is HJ/LJ OOP vs a later (BTN/CO) IP seat.
+  if (rawOop === 'HJ/LJ' && rawIp === 'IP') {
+    rawOop = 'HJ';
+    rawIp = 'BTN';
+  }
+  const group = (pos) => LP.has(pos) ? 'LP' : EP.has(pos) ? 'EP' : pos;
+  const ipGroup = group(rawIp);
   // In 3bp vs LP/EP, OOP is always a blind 3-bettor — collapse BB/SB into one bucket.
-  // BvB (ipGroup === 'BB') keeps SB as the OOP position.
+  // BvB (ipGroup === 'BB') keeps SB as the OOP position. Non-blind OOP (e.g. CO vs BTN
+  // 3bp) groups like IP does, giving LP_vs_LP / EP_vs_LP.
   const oopGroup = (potType === '3bp' && (ipGroup === 'LP' || ipGroup === 'EP') && (rawOop === 'BB' || rawOop === 'SB'))
     ? 'Blinds'
-    : rawOop;
+    : group(rawOop);
   const safeMatchup = `${oopGroup}_vs_${ipGroup}` + (potType ? '_' + potType : '') + '_' + playerType + '_' + perspective;
 
   const safeLine = line.replace(/[^A-Z0-9\-]/gi, '');

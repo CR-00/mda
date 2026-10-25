@@ -83,7 +83,7 @@ function PillSection({ heading, linesByStreet, uploadedSet, total, copiedLine, o
   );
 }
 
-export default function CoverageModal({ onClose }) {
+export default function CoverageModal({ onClose, onUploaded }) {
   const [uploads, setUploads] = useState(null);
   const [selected, setSelected] = useState(null);
   const [potFilter, setPotFilter] = useState('all');
@@ -255,7 +255,7 @@ export default function CoverageModal({ onClose }) {
         <div onClick={e => e.stopPropagation()}>
           <UploadModal
             onClose={() => setUploadOpen(false)}
-            onSuccess={() => { setUploadOpen(false); fetchCoverage(); }}
+            onSuccess={() => { setUploadOpen(false); fetchCoverage(); onUploaded?.(); }}
           />
         </div>
       )}
