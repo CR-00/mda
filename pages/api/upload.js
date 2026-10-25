@@ -1,5 +1,6 @@
 import { put } from '@vercel/blob';
 import { compressJson, prune } from '../../lib/blobJson.mjs';
+import { normalizeSnapBody } from '../../lib/snapFormat';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '10mb' } },
@@ -8,7 +9,7 @@ export const config = {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const body = req.body;
+  const body = normalizeSnapBody(req.body);
   const matchup = body?.query?.matchups?.[0];
   const line = body?.query?.line;
 

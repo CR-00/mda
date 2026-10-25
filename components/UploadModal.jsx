@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { normalizeSnapBody } from '../lib/snapFormat';
 
 const POT_TYPES = [
   { id: 'srp', label: 'SRP' },
@@ -13,7 +14,7 @@ export default function UploadModal({ onClose, onSuccess }) {
 
   const processText = (text) => {
     try {
-      const parsed = JSON.parse(text);
+      const parsed = normalizeSnapBody(JSON.parse(text));
       if (!parsed || typeof parsed !== 'object') throw new Error('Pasted text is not a JSON object');
       if (!parsed.query) {
         throw new Error(`No "query" key. Top-level keys found: ${Object.keys(parsed).join(', ') || '(none)'}`);
