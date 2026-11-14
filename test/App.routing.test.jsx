@@ -120,6 +120,25 @@ describe('App routing — frontier speculation', () => {
     expect(urls).toContain('/api/data?matchup=BB_vs_LP_srp_reg_ip&line=B');
   });
 
+  it('hero IP on river frontier: bluff EV comes from villain\'s fold row "XC-XC-XF"', async () => {
+    // BTN vs CO 3bp, x b c x b c x — CO checked river. Hero's bluff EV lives
+    // on CO's fold to the river bet, in CO's (oop) file — what snap reports.
+    const urls = await renderAppAndWaitForFetches({
+      count: 3, ip: 'BTN', oop: 'CO', pot: '3bp', hero: 'BTN',
+      line: 'xbcxbcx',
+    });
+    expect(urls).toContain('/api/data?matchup=LP_vs_LP_3bp_reg_oop&line=XC-XC-XF');
+  });
+
+  it('hero OOP leads a new street: villain\'s fold opens a new segment ("B-F")', async () => {
+    // BB checks, LP bets, BB calls → BB leads turn; LP's fold line = 'B' + '-F'.
+    const urls = await renderAppAndWaitForFetches({
+      count: 3, ip: 'LP', oop: 'BB', pot: 'srp', hero: 'BB',
+      line: 'xbc',
+    });
+    expect(urls).toContain('/api/data?matchup=BB_vs_LP_srp_reg_ip&line=B-F');
+  });
+
   it('flop bet → call → OOP checks turn: hero speculatively fetches "B-B"', async () => {
     const urls = await renderAppAndWaitForFetches({
       ip: 'LP', oop: 'BB', pot: 'srp', hero: 'LP',

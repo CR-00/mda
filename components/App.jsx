@@ -9,7 +9,7 @@ import LineExplorer from './LineExplorer';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle } from './TweaksPanel';
 import { useSettings } from '../lib/useSettings';
 import { MATCHUPS, FILTERS } from '../lib/data';
-import { deriveQueryLine, matchupToKey } from '../lib/spotMatch';
+import { deriveQueryLine, matchupToKey, betResponseFoldLine } from '../lib/spotMatch';
 import { SHOW_FISH } from '../lib/flags';
 
 const DEFAULT_BOARD = [null, null, null, null, null];
@@ -183,6 +183,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [spotData, setSpotData] = useState(undefined);
   const [raiseSpotData, setRaiseSpotData] = useState(undefined);
+  const [betFoldData, setBetFoldData] = useState(undefined);
   const [fetchSeq, setFetchSeq] = useState(0);
 
   const nonMarkerLine = line.filter(a => !a.marker);
@@ -233,6 +234,23 @@ export default function App() {
   const effectiveFetchLine = villainIsAggressor
     ? villainQueryLine
     : (villainOnCheckBetFrontier ? villainSpeculativeLine : speculativeLine);
+
+  // Bet mode (no bet outstanding): the bettor's bluff EV and the responder's
+  // fold/call/raise live on the RESPONDER's fold row, in the responder's file.
+  const bettorIsHero = heroOnCheckBetFrontier;
+  const betFoldKey = isFacing ? null : (bettorIsHero ? villainMatchupKey : matchupKey);
+  const betFoldLine = isFacing ? null : betResponseFoldLine(nonMarkerLine, bettorIsHero ? villainPos : hero, ipPos);
+
+  useEffect(() => {
+    if (!betFoldKey || !betFoldLine) { setBetFoldData(undefined); return; }
+    let cancelled = false;
+    setBetFoldData(undefined);
+    fetch(`/api/data?matchup=${encodeURIComponent(betFoldKey)}&line=${encodeURIComponent(betFoldLine)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled) setBetFoldData(Array.isArray(d?.data) ? d.data : null); })
+      .catch(() => { if (!cancelled) setBetFoldData(null); });
+    return () => { cancelled = true; };
+  }, [betFoldKey, betFoldLine, fetchSeq]);
 
   useEffect(() => {
     if (!isValidCombo(ipPos, oopPos, potType)) {
@@ -406,6 +424,7 @@ export default function App() {
                 setBoard={setBoard}
                 spotData={spotData}
                 raiseSpotData={raiseSpotData}
+                betFoldData={betFoldData}
                 onUpload={() => setUploadOpen(true)}
               />
             )}

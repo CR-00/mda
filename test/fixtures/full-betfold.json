@@ -1,0 +1,40 @@
+{
+  "_comment": "Responder's fold file for a flop bet (bet mode). Pre-bet pot 10 BB; fold rows' `pot` includes the bet. bluffVev (BB) / bluffVevPct (fraction of pre-bet pot) are snap's bluff EV; freqs is the responder's F/C/R split.",
+  "data": [
+    {
+      "metric": "Overall", "value": "Average", "action": "F",
+      "hits": 120, "opps": 200, "freq": 0.6, "pctPot": 0.5, "pot": 15,
+      "bluffVev": 4.5, "bluffVevPct": 0.45,
+      "freqs": { "F": 0.6, "C": 0.3, "R": 0.1 },
+      "nextActions": {}
+    },
+    {
+      "metric": "Flop Bet Size", "value": "33% ", "action": "F",
+      "hits": 50, "opps": 80, "freq": 0.625, "pctPot": 0.33, "pot": 13.3,
+      "bluffVev": 3.2, "bluffVevPct": 0.32,
+      "freqs": { "F": 0.625, "C": 0.3125, "R": 0.0625 },
+      "nextActions": {}
+    },
+    {
+      "metric": "Flop Bet Size", "value": "75% ", "action": "F",
+      "hits": 70, "opps": 120, "freq": 0.583, "pctPot": 0.75, "pot": 17.5,
+      "bluffVev": 1.1, "bluffVevPct": 0.11,
+      "freqs": { "F": 0.583, "C": 0.292, "R": 0.125 },
+      "nextActions": {}
+    },
+    {
+      "metric": "Texture", "value": "High card", "action": "F",
+      "hits": 90, "opps": 140, "freq": 0.643, "pctPot": 0.6, "pot": 16,
+      "bluffVev": 5.0, "bluffVevPct": 0.5,
+      "freqs": { "F": 0.643, "C": 0.286, "R": 0.071 },
+      "nextActions": {}
+    },
+    {
+      "metric": "Texture", "value": "Low card", "action": "F",
+      "hits": 30, "opps": 60, "freq": 0.5, "pctPot": 0.4, "pot": 14,
+      "bluffVev": 2.0, "bluffVevPct": 0.2,
+      "freqs": { "F": 0.5, "C": 0.333, "R": 0.167 },
+      "nextActions": {}
+    }
+  ]
+}

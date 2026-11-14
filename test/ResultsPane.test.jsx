@@ -4,6 +4,7 @@ import ResultsPane from '../components/ResultsPane.jsx';
 import fullBet from './fixtures/full-bet.json';
 import fullFacing from './fixtures/full-facing.json';
 import fullRaise from './fixtures/full-raise.json';
+import fullBetFold from './fixtures/full-betfold.json';
 
 const EMPTY_BOARD = [null, null, null, null, null];
 
@@ -22,6 +23,8 @@ function renderResults(opts = {}) {
   const board = 'board' in opts ? opts.board : EMPTY_BOARD;
   const spotData = 'spotData' in opts ? opts.spotData : fullBet.data;
   const raiseSpotData = 'raiseSpotData' in opts ? opts.raiseSpotData : null;
+  // Bet mode reads the responder's fold file; facing mode ignores it.
+  const betFoldData = 'betFoldData' in opts ? opts.betFoldData : fullBetFold.data;
   const hero = opts.hero ?? 'BTN';
   return render(
     <ResultsPane
@@ -33,6 +36,7 @@ function renderResults(opts = {}) {
       setBoard={() => {}}
       spotData={spotData}
       raiseSpotData={raiseSpotData}
+      betFoldData={betFoldData}
       onUpload={() => {}}
       onSelectNext={() => {}}
     />
@@ -41,12 +45,12 @@ function renderResults(opts = {}) {
 
 describe('ResultsPane — loading and empty states', () => {
   it('shows loading state when spotData is undefined', () => {
-    renderResults({ spotData: undefined });
+    renderResults({ spotData: undefined, betFoldData: undefined });
     expect(screen.getByText(/Loading/)).toBeInTheDocument();
   });
 
   it('shows no-data empty state when spotData is null', () => {
-    renderResults({ spotData: null });
+    renderResults({ spotData: null, betFoldData: null });
     expect(screen.getByText(/No data for this spot/)).toBeInTheDocument();
   });
 });
@@ -72,8 +76,8 @@ describe('ResultsPane — bet mode (hero deciding whether to bet)', () => {
     expect(within(head).getByText('FLOP')).toBeInTheDocument();
   });
 
-  it('SpotSummary "Average vs bet" column renders BF/BC/BR percentages from Overall row', () => {
-    // Overall: BF:120, BC:60, BR:20  total=200 → 60% / 30% / 10%
+  it("SpotSummary 'Average vs bet' column renders the responder's fold/call/raise from the fold row", () => {
+    // Fold-file Overall freqs: F .6 / C .3 / R .1 → 60% / 30% / 10%
     const { container } = renderResults();
     const avgCol = container.querySelector('.spot-summary .ss-col');
     expect(within(avgCol).getByText('60%')).toBeInTheDocument();
@@ -82,7 +86,7 @@ describe('ResultsPane — bet mode (hero deciding whether to bet)', () => {
   });
 
   it('SpotSummary "Average vs bet" column renders bluffEV in pct mode (default unit)', () => {
-    // bluffEV = (0.6 - 0.3*0.5)*10 = 4.5 BB → as % of pot = 45.0%
+    // snap's bluffVevPct = 0.45 → +45.0%
     const { container } = renderResults();
     const avgCol = container.querySelector('.spot-summary .ss-col');
     expect(within(avgCol).getByText(/\+45\.0%/)).toBeInTheDocument();
@@ -93,6 +97,18 @@ describe('ResultsPane — bet mode (hero deciding whether to bet)', () => {
     expect(screen.getByRole('button', { name: /^By size$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^By texture$/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Bluff EV vs size/ })).not.toBeInTheDocument();
+  });
+
+  it("uses the responder's fold file, not the bettor's BF/BC/BR (their reply to a raise)", () => {
+    // Bettor's own row: BF/BC are hero's reply to a check-raise — a formula on
+    // them would give (0.2 - 0.8*0.5) = -20%. Snap's figure is on the fold row.
+    const misleading = [{ metric: 'Overall', value: 'Overall', action: 'B', hits: 1000, opps: 2000, pctPot: 0.5, pot: 10, nextActions: { BF: 20, BC: 80 } }];
+    const fold = [{ metric: 'Overall', value: 'Overall', action: 'F', hits: 550, opps: 1000, pctPot: 0.97, pot: 19.7, bluffVev: 1.55, bluffVevPct: 0.155, freqs: { F: 0.55, C: 0.417, R: 0.111 } }];
+    const { container } = renderResults({ spotData: misleading, betFoldData: fold });
+    const avgCol = container.querySelector('.spot-summary .ss-col');
+    expect(within(avgCol).getByText(/\+15\.5%/)).toBeInTheDocument();
+    expect(within(avgCol).getByText('55%')).toBeInTheDocument();
+    expect(within(avgCol).queryByText(/−20\.0%/)).toBeNull();
   });
 
   it('size table shows each size row with its label', () => {
@@ -323,7 +339,7 @@ describe('ResultsPane — size-sequence filter', () => {
       { street: 'turn', actor: 'BB', action: 'bet', sizing: 66 },
       { street: 'turn', actor: 'BTN', action: 'call', sizing: 0 },
     ];
-    const { container } = renderResults({ line: LINE, spotData: SPOT, hero: 'BB' });
+    const { container } = renderResults({ line: LINE, betFoldData: SPOT, hero: 'BB' });
     await openSeqTab();
     const rowOf = (label) => [...container.querySelectorAll('tbody tr')]
       .find(tr => tr.querySelector('td.seq-label')?.textContent.startsWith(label));
@@ -351,7 +367,7 @@ describe('ResultsPane — size-sequence filter', () => {
       { street: 'turn', actor: 'BB', action: 'bet', sizing: 66 },
       { street: 'turn', actor: 'BTN', action: 'call', sizing: 0 },
     ];
-    const { container } = renderResults({ line: LINE3, spotData: SPOT3, hero: 'BB' });
+    const { container } = renderResults({ line: LINE3, betFoldData: SPOT3, hero: 'BB' });
     await openSeqTab();
     const labels = [...container.querySelectorAll('td.seq-label')].map(td => td.childNodes[0].textContent.trim());
     expect(labels).toEqual(expect.arrayContaining(['S-M-S', 'S-M-L']));

@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom';
 
 const EVUnitCtx = createContext('bb');
 
-function fmtEV(evBB, potSize, evUnit) {
+// pctFrac: an exact pot-relative EV (fraction) when the data carries one —
+// snap's bluffVevPct — so the % view matches snap instead of re-deriving it.
+function fmtEV(evBB, potSize, evUnit, pctFrac = null) {
   if (evUnit === 'pct') {
-    const v = potSize > 0 ? evBB / potSize * 100 : 0;
+    const v = pctFrac != null ? pctFrac * 100 : (potSize > 0 ? evBB / potSize * 100 : 0);
     return { v, dp: 1, suffix: '%' };
   }
   return { v: evBB, dp: 2, suffix: ' BB' };
@@ -26,9 +28,18 @@ function detectMode(line, hero, matchup) {
   return { mode: facing ? "facing" : "bet", actor: nextActor, street, facingAction: facing ? lastAction : null };
 }
 
-export default function ResultsPane({ line, hero, matchup, filters, board, setBoard, spotData, raiseSpotData, onUpload }) {
+export default function ResultsPane({ line, hero, matchup, filters, board, setBoard, spotData: facingSpotData, raiseSpotData, betFoldData, onUpload }) {
   const ctx = useMemo(() => detectMode(line, hero, matchup), [line, matchup]);
   const street = ctx.street.charAt(0).toUpperCase() + ctx.street.slice(1);
+
+  // Bet mode reads the RESPONDER's fold file (see betResponseFoldLine): its
+  // rows hold the bettor's bluff EV and the responder's fold/call/raise, split
+  // by the bettor's size on this street ("<Street> Bet Size"). Facing mode
+  // keeps the bettor's own file (catchVev on the bet rows).
+  const isBet = ctx.mode === 'bet';
+  const spotData = isBet ? betFoldData : facingSpotData;
+  const betStreet = isBet ? (prospectiveBetStreet(line) ?? ctx.street) : ctx.street;
+  const sizeMetric = isBet ? betStreet.charAt(0).toUpperCase() + betStreet.slice(1) + ' Bet Size' : 'Size';
 
   const [evUnit, setEvUnit] = useState('pct');
   useEffect(() => {
@@ -42,8 +53,8 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
   const boardTextures = useMemo(() => getBoardTextures(board), [board]);
 
   const realSizeData = useMemo(
-    () => Array.isArray(spotData) ? adaptTableData(spotData, 'Size') : null,
-    [spotData]
+    () => Array.isArray(spotData) ? adaptTableData(spotData, sizeMetric) : null,
+    [spotData, sizeMetric]
   );
   const realRaiseData = useMemo(() => {
     if (!Array.isArray(raiseSpotData)) return null;
@@ -196,7 +207,7 @@ export default function ResultsPane({ line, hero, matchup, filters, board, setBo
         </div>
       </div>
 
-      <TableTabs mode={ctx.mode} street={ctx.street} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} sizeSeqData={realSizeSeqData} boardSummary={boardSummary} boardSummaryRaise={boardSummaryRaise} sizeSeq={sizeSeq} sizeSeqPattern={sizeSeqPattern} currentSize={currentSize} />
+      <TableTabs mode={ctx.mode} street={betStreet} facingAction={ctx.facingAction} sizeData={realSizeData} textureData={realTextureData} raiseData={realRaiseData} raiseTextureData={realRaiseTextureData} bluffRaiseData={realBluffRaiseData} sizeSeqData={realSizeSeqData} boardSummary={boardSummary} boardSummaryRaise={boardSummaryRaise} sizeSeq={sizeSeq} sizeSeqPattern={sizeSeqPattern} currentSize={currentSize} />
     </div>
     </EVUnitCtx.Provider>
   );
@@ -282,7 +293,7 @@ function SpotSummary({ mode, facingAction, sizeData, textureData, raiseData, rai
               const src = from === "raise" ? raise : row;
               const raw = src?.[key];
               if (raw == null || Number.isNaN(raw)) return null;
-              const { v, dp, suffix } = fmtEV(raw, src.potSize, evUnit);
+              const { v, dp, suffix } = fmtEV(raw, src.potSize, evUnit, key === 'bluffEV' ? src.bluffEVPct : null);
               return (
                 <div key={evLabel} className="ss-stat ss-stat-ev">
                   <span className="ss-stat-label">{evLabel}</span>
@@ -388,8 +399,10 @@ function BluffEVTip({ row }) {
   const mdf = 1 / (1 + row.sizeRatio) * 100;
   const foldPct = row.next.bf * 100;
   const callPct = row.next.bc * 100;
-  const evBB = (row.next.bf - row.next.bc * row.sizeRatio) * row.potSize;
-  const { v, dp, suffix } = fmtEV(evBB, row.potSize, evUnit);
+  // Fold rows carry snap's measured EV; otherwise fall back to the fold/call estimate.
+  const measured = row.bluffEVPct != null;
+  const evBB = measured ? row.bluffEV : (row.next.bf - row.next.bc * row.sizeRatio) * row.potSize;
+  const { v, dp, suffix } = fmtEV(evBB, row.potSize, evUnit, measured ? row.bluffEVPct : null);
   const overFolds = foldPct > (100 - mdf);
   return (
     <div className="tt-content">
@@ -399,7 +412,9 @@ function BluffEVTip({ row }) {
         <span className={overFolds ? 'pos' : 'neg'}>{foldPct.toFixed(1)}%</span>
       </div>
       <div className="tt-sep" />
-      <div className="tt-formula">{foldPct.toFixed(1)} − {callPct.toFixed(1)} × {row.sizeRatio.toFixed(2)}</div>
+      {measured
+        ? <div className="tt-note">Measured from the hands villain faced this bet (same figure as snap).</div>
+        : <div className="tt-formula">{foldPct.toFixed(1)} − {callPct.toFixed(1)} × {row.sizeRatio.toFixed(2)}</div>}
       <div className={"tt-result " + (v >= 0 ? 'pos' : 'neg')}>{v >= 0 ? '+' : ''}{Math.abs(v).toFixed(dp)}{suffix} EV per bluff</div>
     </div>
   );
@@ -440,9 +455,9 @@ function SampleCell({ row }) {
   );
 }
 
-function EVCell({ evBB, potSize }) {
+function EVCell({ evBB, potSize, pct = null }) {
   const evUnit = useContext(EVUnitCtx);
-  const { v, dp, suffix } = fmtEV(evBB, potSize, evUnit);
+  const { v, dp, suffix } = fmtEV(evBB, potSize, evUnit, pct);
   const isPos = v >= 0;
   return (
     <span className={"ev-cell " + (isPos ? "pos" : "neg")}>
@@ -543,7 +558,7 @@ function BetSizeRow({ row, isOverall, highlight, rowRef }) {
       <td className="ta-l"><SampleCell row={row} /></td>
       <td className="ta-r">
         <Tooltip tip={<BluffEVTip row={row} />}>
-          <EVCell evBB={row.bluffEV} potSize={row.potSize} />
+          <EVCell evBB={row.bluffEV} potSize={row.potSize} pct={row.bluffEVPct} />
         </Tooltip>
       </td>
     </tr>
@@ -800,7 +815,7 @@ function SizeSeqTable({ data, highlight, pattern }) {
               <td className="ta-r seq-fold">{(row.next.bf * 100).toFixed(0)}%</td>
               <td className="ta-r">
                 <Tooltip tip={<BluffEVTip row={row} />}>
-                  <EVCell evBB={row.bluffEV} potSize={row.potSize} />
+                  <EVCell evBB={row.bluffEV} potSize={row.potSize} pct={row.bluffEVPct} />
                 </Tooltip>
               </td>
               <td className="ta-r">
