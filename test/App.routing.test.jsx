@@ -269,14 +269,34 @@ describe('App routing — multi-street', () => {
   });
 });
 
-// ─── /api/scan is called for explorer ────────────────────────────────────────
+// ─── advanced mode: exact-position data keys ────────────────────────────────
 
-describe('App routing — line explorer scan', () => {
-  it('renders without scan call when on analyzer view', async () => {
-    setSearch({ ip: 'LP', oop: 'BB', pot: 'srp', hero: 'LP', line: 'xb' });
-    await act(async () => { render(<App />); });
-    await waitFor(() => expect(fetch).toHaveBeenCalled());
-    const scanCalls = getFetchedUrls().filter(u => u.startsWith('/api/scan'));
-    expect(scanCalls).toHaveLength(0);
+describe('App routing — advanced mode (Settings → Advanced mode on)', () => {
+  // useSettings reads window.localStorage; the test env doesn't provide one, so
+  // stub a minimal store holding the advanced-mode setting.
+  beforeEach(() => {
+    const store = { 'mda.settings': JSON.stringify({ advancedMode: true }) };
+    vi.stubGlobal('localStorage', {
+      getItem: (k) => store[k] ?? null,
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+    });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('BTN vs BB SRP reads the BTN-specific file (not the LP group)', async () => {
+    const urls = await renderAppAndWaitForFetches({
+      ip: 'BTN', oop: 'BB', pot: 'srp', hero: 'BB',
+      line: 'xbcxx',
+    });
+    expect(urls).toContain('/api/data?matchup=BB_vs_BTN_srp_reg_oop&line=XC-X-B');
+    expect(urls.some(u => u.includes('BB_vs_LP_'))).toBe(false);
+  });
+
+  it('BB 3-bet vs BTN makes BB the hero (OOP PFR) on BB_vs_BTN_3bp', async () => {
+    const urls = await renderAppAndWaitForFetches({
+      ip: 'BTN', oop: 'BB', pot: '3bp', hero: 'BB',
+    });
+    expect(urls).toContain('/api/data?matchup=BB_vs_BTN_3bp_reg_oop&line=B');
   });
 });

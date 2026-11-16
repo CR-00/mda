@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 
 export function middleware(request) {
+  // Local `next dev` runs without basic auth; deployed builds still require it.
+  if (process.env.NODE_ENV === 'development') return NextResponse.next();
+
   const user = process.env.BASIC_AUTH_USER;
   const pass = process.env.BASIC_AUTH_PASS;
 

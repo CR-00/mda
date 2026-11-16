@@ -1,6 +1,9 @@
 import { put } from '@vercel/blob';
 import { compressJson, prune } from '../../lib/blobJson.mjs';
 import { normalizeSnapBody } from '../../lib/snapFormat';
+import { isRiverLine } from '../../lib/lines';
+import { uploadDataKey, isKnownSpotKey } from '../../lib/uploadKey';
+import { isShortlisted } from '../../lib/shortlist';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '10mb' } },
@@ -17,32 +20,21 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing query.matchups[0] or query.line' });
   }
 
-  const potType = body?._potType ?? (body?.query?.['Pot Type']?.[0] ?? '').toLowerCase().replace(/\s+/g, '');
-  const playerType = (body?.query?.['Player Type']?.[0] ?? 'reg').toLowerCase().replace(/\s+/g, '');
-  const perspective = (body?.query?.['IP/OOP']?.[0] ?? 'IP').toLowerCase() === 'oop' ? 'oop' : 'ip';
+  if (!isRiverLine(line)) {
+    return res.status(400).json({ error: `Only river nodes can be imported (got line "${line}")` });
+  }
 
-  const LP = new Set(['BTN', 'BU', 'CO']);
-  const EP = new Set(['HJ', 'MP', 'LJ', 'UTG']);
-  let [rawOop, , rawIp] = matchup.split(' ');
-  // snap lists blind-vs-blind as "BB vs SB", but postflop SB is OOP and BB is IP.
-  if (rawOop === 'BB' && rawIp === 'SB') {
-    rawOop = 'SB';
-    rawIp = 'BB';
+  const mode = body?._mode === 'advanced' ? 'advanced' : 'simple';
+  const safeMatchup = uploadDataKey(body, mode);
+  if (!safeMatchup) {
+    return res.status(400).json({ error: 'Advanced mode needs an export of a single matchup (e.g. "BB vs BTN")' });
   }
-  // snap's "HJ/LJ vs IP" group is HJ/LJ OOP vs a later (BTN/CO) IP seat.
-  if (rawOop === 'HJ/LJ' && rawIp === 'IP') {
-    rawOop = 'HJ';
-    rawIp = 'BTN';
+  if (!isKnownSpotKey(safeMatchup)) {
+    return res.status(400).json({ error: `${safeMatchup} isn't one of the app's ${mode} spots` });
   }
-  const group = (pos) => LP.has(pos) ? 'LP' : EP.has(pos) ? 'EP' : pos;
-  const ipGroup = group(rawIp);
-  // In 3bp vs LP/EP, OOP is always a blind 3-bettor — collapse BB/SB into one bucket.
-  // BvB (ipGroup === 'BB') keeps SB as the OOP position. Non-blind OOP (e.g. CO vs BTN
-  // 3bp) groups like IP does, giving LP_vs_LP / EP_vs_LP.
-  const oopGroup = (potType === '3bp' && (ipGroup === 'LP' || ipGroup === 'EP') && (rawOop === 'BB' || rawOop === 'SB'))
-    ? 'Blinds'
-    : group(rawOop);
-  const safeMatchup = `${oopGroup}_vs_${ipGroup}` + (potType ? '_' + potType : '') + '_' + playerType + '_' + perspective;
+  if (!isShortlisted(safeMatchup, line)) {
+    return res.status(400).json({ error: `Line "${line}" is not on the upload shortlist for ${safeMatchup}` });
+  }
 
   const safeLine = line.replace(/[^A-Z0-9\-]/gi, '');
   const filename = `${safeMatchup}_${safeLine}.json`;

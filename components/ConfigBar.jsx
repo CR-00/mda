@@ -1,34 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { SHOW_FISH } from '../lib/flags';
-import { keyGroup } from '../lib/spotMatch';
+import { spotsForMode, findSpot } from '../lib/spots';
 
 export const POT_TYPES = [
   { id: "srp", label: "SRP", full: "Single raised" },
   { id: "3bp", label: "3BP", full: "3-bet pot" },
+  { id: "4bp", label: "4BP", full: "4-bet pot" },
 ];
 
-// The valid IP/OOP/pot combinations the ConfigBar logic permits, surfaced as
-// tabs. The PFR/hero is derived from the spot in App.jsx, so it isn't a tab.
-const COMMON_SPOTS = [
-  { id: "lp_bb_srp",     label: "LP vs BB",         ip: "LP", oop: "BB",     pot: "srp" },
-  { id: "ep_bb_srp",     label: "EP vs BB",         ip: "EP", oop: "BB",     pot: "srp" },
-  { id: "lp_blinds_3bp", label: "LP vs Blinds 3BP", ip: "LP", oop: "Blinds", pot: "3bp" },
-  { id: "ep_blinds_3bp", label: "EP vs Blinds 3BP", ip: "EP", oop: "Blinds", pot: "3bp" },
-  { id: "lp_lp_3bp",     label: "LP vs LP 3BP",     ip: "BTN", oop: "CO",    pot: "3bp" },
-  { id: "ep_lp_3bp",     label: "EP vs LP 3BP",     ip: "LP", oop: "EP",     pot: "3bp" },
-  { id: "bvb_srp",       label: "BvB",              ip: "BB", oop: "SB",     pot: "srp" },
-  { id: "bvb_3bp",       label: "BvB 3BP",          ip: "BB", oop: "SB",     pot: "3bp" },
-];
-
-// SRP OOP is always BB; 3bp OOP vs LP/EP collapses BB+SB into 'Blinds'; BvB OOP is SB.
-// Non-blind 3bp: CO vs BTN (LP vs LP) and EP vs LP.
-export function getOopOptions(ipPos, potType) {
-  if (ipPos === 'BB') return [{ id: 'SB', label: 'SB' }];
-  if (ipPos === 'BTN') return [{ id: 'CO', label: 'CO' }];
-  if (potType === '3bp' && ipPos === 'LP') return [{ id: 'Blinds', label: 'Blinds' }, { id: 'EP', label: 'EP' }];
-  if (potType === '3bp') return [{ id: 'Blinds', label: 'Blinds' }];
-  return [{ id: 'BB', label: 'BB' }];
-}
 const RANKS = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"];
 const SUITS = [
   { id: "s", glyph: "♠", name: "spades" },
@@ -38,18 +17,25 @@ const SUITS = [
 ];
 const SUIT_GLYPHS = Object.fromEntries(SUITS.map(s => [s.id, s.glyph]));
 
-export function isValidCombo(ip, oop, potType) {
-  return getOopOptions(ip, potType).some(o => o.id === oop);
-}
 
 const PLAYER_TYPES = [
   { id: "reg", label: "REG" },
   ...(SHOW_FISH ? [{ id: "fish", label: "FISH" }] : []),
 ];
 
-export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType, setPotType, playerType, setPlayerType, nav, coverageSeq }) {
-  const activeSpot = COMMON_SPOTS.find(s => s.ip === ipPos && s.oop === oopPos && s.pot === potType)?.id;
+
+export default function ConfigBar({ mode = "simple", ipPos, setIpPos, oopPos, setOopPos, potType, setPotType, playerType, setPlayerType, nav, coverageSeq }) {
+  const allSpots = spotsForMode(mode);
+  // Two levels: pick the pot type, then one of that pot's configurations.
+  const pots = POT_TYPES.filter(p => allSpots.some(s => s.pot === p.id));
+  const spots = allSpots.filter(s => s.pot === potType);
+  const activeSpot = findSpot(mode, ipPos, oopPos, potType)?.id;
   const selectSpot = (s) => { setIpPos(s.ip); setOopPos(s.oop); setPotType(s.pot); };
+  const selectPot = (pot) => {
+    if (pot === potType) return;
+    const first = allSpots.find(s => s.pot === pot);
+    if (first) selectSpot(first);
+  };
 
   // Which matchups have uploaded data — drives disabling spot tabs with no data.
   // null = unknown (loading); don't disable until we know. Refetched whenever
@@ -68,16 +54,21 @@ export default function ConfigBar({ ipPos, setIpPos, oopPos, setOopPos, potType,
   }, [coverageSeq]);
 
   // Matchup base key (no perspective), e.g. "Blinds_vs_EP_3bp_reg".
-  const spotBase = (s) => `${keyGroup(s.oop)}_vs_${keyGroup(s.ip)}_${s.pot}_${playerType}`;
+  const spotBase = (s) => `${s.keyBase}_${playerType}`;
   const isUnavailable = (s) => availBases != null && !availBases.has(spotBase(s));
 
   return (
     <div className="config-bar">
+      <div className="config-section">
+        <div className="config-label">Pot</div>
+        <SegRow options={pots} value={potType} onChange={selectPot} />
+      </div>
+
       <div className="nav-tab-bar">
         {nav}
         {nav && <div className="nav-divider" />}
         <div className="spot-tabs">
-          {COMMON_SPOTS.map(s => {
+          {spots.map(s => {
             const disabled = isUnavailable(s);
             return (
               <button

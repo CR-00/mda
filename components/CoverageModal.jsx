@@ -1,53 +1,35 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ALL_LINES } from '../lib/lines';
+import { shortlistFor, isShortlisted } from '../lib/shortlist';
+import { spotsForMode, isOopPfr } from '../lib/spots';
 import { SHOW_FISH } from '../lib/flags';
 import UploadModal from './UploadModal';
 
-const POT_LABELS = { srp: 'SRP', '3bp': '3BP' };
+const POT_LABELS = { srp: 'SRP', '3bp': '3BP', '4bp': '4BP' };
 const PLAYER_TYPES = SHOW_FISH ? ['reg', 'fish'] : ['reg'];
 
-const GROUP_MATCHUPS = [
-  { id: 'LP_vs_BB_srp', label: 'LP vs BB', potType: 'srp', base: 'BB_vs_LP' },
-  { id: 'EP_vs_BB_srp', label: 'EP vs BB', potType: 'srp', base: 'BB_vs_EP' },
-  { id: 'BB_vs_SB_srp', label: 'BB vs SB', potType: 'srp', base: 'SB_vs_BB', oopIsPfr: true },
-  { id: 'LP_vs_Blinds_3bp', label: 'LP vs Blinds', potType: '3bp', base: 'Blinds_vs_LP', oopIsPfr: true },
-  { id: 'EP_vs_Blinds_3bp', label: 'EP vs Blinds', potType: '3bp', base: 'Blinds_vs_EP', oopIsPfr: true },
-  { id: 'LP_vs_EP_3bp', label: 'LP vs EP', potType: '3bp', base: 'EP_vs_LP' },
-  { id: 'LP_vs_LP_3bp', label: 'LP vs LP', potType: '3bp', base: 'LP_vs_LP' },
-  { id: 'BB_vs_SB_3bp', label: 'BB vs SB', potType: '3bp', base: 'SB_vs_BB' },
-];
-
-// IP acts last each street, so it never checks-then-acts within a street.
-const isIpLine  = (line) => !line.split('-').some(seg => /^X[A-Z]/.test(seg));
-// OOP acts first each street, so every street segment starts with X (check) or B (bet).
-const isOopLine = (line) => line.split('-').every(seg => seg[0] === 'X' || seg[0] === 'B');
-
-const filterStreets = (pred) => ({
-  flop:  ALL_LINES.flop.filter(pred),
-  turn:  ALL_LINES.turn.filter(pred),
-  river: ALL_LINES.river.filter(pred),
-});
-const IP_LINES  = filterStreets(isIpLine);
-const OOP_LINES = filterStreets(isOopLine);
-const IP_TOTAL  = Object.values(IP_LINES).flat().length;
-const OOP_TOTAL = Object.values(OOP_LINES).flat().length;
 
 // Sidebar entries: matchup × playerType (no perspective — both shown in detail)
-function buildEntries() {
-  return GROUP_MATCHUPS.flatMap(gm =>
+function buildEntries(mode) {
+  return spotsForMode(mode).flatMap(spot =>
     PLAYER_TYPES.map(playerType => ({
-      key:         `${gm.id}_${playerType}`,
-      label:       gm.label,
-      potType:     gm.potType,
+      key:         `${spot.id}_${playerType}`,
+      label:       spot.label,
+      potType:     spot.pot,
       playerType,
-      oopIsPfr:    !!gm.oopIsPfr,
-      ipDataKey:   `${gm.base}_${gm.potType}_${playerType}_ip`,
-      oopDataKey:  `${gm.base}_${gm.potType}_${playerType}_oop`,
+      oopIsPfr:    isOopPfr(spot.ip, spot.oop, spot.pot),
+      ipDataKey:   `${spot.keyBase}_${playerType}_ip`,
+      oopDataKey:  `${spot.keyBase}_${playerType}_oop`,
     }))
   );
 }
 
-const ENTRIES = buildEntries();
+const ENTRIES_BY_MODE = { simple: buildEntries('simple'), advanced: buildEntries('advanced') };
+const VIEW_MODES = [{ id: 'simple', label: 'Simple' }, { id: 'advanced', label: 'Advanced' }];
+
+// Uploaded lines for a data key that are on its shortlist (anything else
+// stored, e.g. older flop/turn or rare river uploads, is ignored here).
+const riverLines = (uploads, key) => (uploads?.[key]?.lines ?? []).filter(l => isShortlisted(key, l));
+const linesFor = (key) => ({ river: shortlistFor(key) });
 
 function PillSection({ heading, linesByStreet, uploadedSet, total, copiedLine, onCopy }) {
   const uploaded = Object.values(linesByStreet).flat().filter(l => uploadedSet.has(l)).length;
@@ -83,7 +65,9 @@ function PillSection({ heading, linesByStreet, uploadedSet, total, copiedLine, o
   );
 }
 
-export default function CoverageModal({ onClose, onUploaded }) {
+export default function CoverageModal({ mode = 'simple', onClose, onUploaded }) {
+  const [viewMode, setViewMode] = useState(mode);
+  const ENTRIES = ENTRIES_BY_MODE[viewMode];
   const [uploads, setUploads] = useState(null);
   const [selected, setSelected] = useState(null);
   const [potFilter, setPotFilter] = useState('all');
@@ -100,18 +84,21 @@ export default function CoverageModal({ onClose, onUploaded }) {
   const fetchCoverage = useCallback(() => {
     fetch('/api/coverage')
       .then(r => r.json())
-      .then(d => {
-        setUploads(d.uploads ?? {});
-        setSelected(prev => {
-          if (prev) return prev;
-          const firstUploaded = ENTRIES.find(e => d.uploads[e.ipDataKey] || d.uploads[e.oopDataKey]);
-          return firstUploaded?.key ?? ENTRIES[0].key;
-        });
-      })
-      .catch(() => { setUploads({}); setSelected(s => s ?? ENTRIES[0].key); });
+      .then(d => setUploads(d.uploads ?? {}))
+      .catch(() => setUploads({}));
   }, []);
 
   useEffect(() => { fetchCoverage(); }, [fetchCoverage]);
+
+  // Keep a selection from the current view: first entry with data, else the first.
+  useEffect(() => {
+    if (uploads === null) return;
+    setSelected(prev => {
+      if (prev && ENTRIES.some(e => e.key === prev)) return prev;
+      const firstUploaded = ENTRIES.find(e => riverLines(uploads, e.ipDataKey).length || riverLines(uploads, e.oopDataKey).length);
+      return firstUploaded?.key ?? ENTRIES[0].key;
+    });
+  }, [uploads, ENTRIES]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -125,24 +112,25 @@ export default function CoverageModal({ onClose, onUploaded }) {
   );
 
   const selInfo = ENTRIES.find(e => e.key === selected);
-  const ipUploadedSet  = new Set(uploads && selInfo ? (uploads[selInfo.ipDataKey]?.lines  ?? []) : []);
-  const oopUploadedSet = new Set(uploads && selInfo ? (uploads[selInfo.oopDataKey]?.lines ?? []) : []);
+  const ipUploadedSet  = new Set(selInfo ? riverLines(uploads, selInfo.ipDataKey)  : []);
+  const oopUploadedSet = new Set(selInfo ? riverLines(uploads, selInfo.oopDataKey) : []);
 
   // Sections are keyed by position (which perspective file the data lives in),
   // labelled by role. PFR shown first.
   const sections = selInfo ? (() => {
-    const oop = { key: 'oop', heading: selInfo.oopIsPfr ? 'OOP (PFR)' : 'OOP (PFC)', linesByStreet: OOP_LINES, uploadedSet: oopUploadedSet, total: OOP_TOTAL };
-    const ip  = { key: 'ip',  heading: selInfo.oopIsPfr ? 'IP (PFC)'  : 'IP (PFR)',  linesByStreet: IP_LINES,  uploadedSet: ipUploadedSet,  total: IP_TOTAL };
+    const oop = { key: 'oop', heading: selInfo.oopIsPfr ? 'OOP (PFR)' : 'OOP (PFC)', linesByStreet: linesFor(selInfo.oopDataKey), uploadedSet: oopUploadedSet, total: shortlistFor(selInfo.oopDataKey).length };
+    const ip  = { key: 'ip',  heading: selInfo.oopIsPfr ? 'IP (PFC)'  : 'IP (PFR)',  linesByStreet: linesFor(selInfo.ipDataKey),  uploadedSet: ipUploadedSet,  total: shortlistFor(selInfo.ipDataKey).length };
     return selInfo.oopIsPfr ? [oop, ip] : [ip, oop];
   })() : [];
 
   const totalUploaded = uploads
     ? ENTRIES.reduce((sum, e) =>
         sum +
-        (uploads[e.ipDataKey]?.lines.length  ?? 0) +
-        (uploads[e.oopDataKey]?.lines.length ?? 0), 0)
+        riverLines(uploads, e.ipDataKey).length +
+        riverLines(uploads, e.oopDataKey).length, 0)
     : 0;
-  const totalPossible = ENTRIES.length * (IP_TOTAL + OOP_TOTAL);
+  const totalPossible = ENTRIES.reduce((sum, e) =>
+    sum + shortlistFor(e.ipDataKey).length + shortlistFor(e.oopDataKey).length, 0);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -155,7 +143,18 @@ export default function CoverageModal({ onClose, onUploaded }) {
           </div>
           <div className="cov-head-right">
             <div className="cov-pot-filter">
-              {['all', 'srp', '3bp'].map(v => (
+              {VIEW_MODES.map(m => (
+                <button
+                  key={m.id}
+                  className={'cov-pf-btn' + (viewMode === m.id ? ' active' : '')}
+                  onClick={() => setViewMode(m.id)}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="cov-pot-filter">
+              {['all', 'srp', '3bp', '4bp'].map(v => (
                 <button
                   key={v}
                   className={'cov-pf-btn' + (potFilter === v ? ' active' : '')}
@@ -202,7 +201,7 @@ export default function CoverageModal({ onClose, onUploaded }) {
 
             <div className="cov-sidebar">
               {visible.map((e) => {
-                const count = (uploads[e.ipDataKey]?.lines.length ?? 0) + (uploads[e.oopDataKey]?.lines.length ?? 0);
+                const count = riverLines(uploads, e.ipDataKey).length + riverLines(uploads, e.oopDataKey).length;
                 const hasData = count > 0;
                 return (
                   <button
@@ -254,6 +253,7 @@ export default function CoverageModal({ onClose, onUploaded }) {
       {uploadOpen && (
         <div onClick={e => e.stopPropagation()}>
           <UploadModal
+            mode={viewMode}
             onClose={() => setUploadOpen(false)}
             onSuccess={() => { setUploadOpen(false); fetchCoverage(); onUploaded?.(); }}
           />

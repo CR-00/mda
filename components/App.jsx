@@ -1,15 +1,15 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import ConfigBar, { BoardCard, POT_TYPES, isValidCombo, getOopOptions } from './ConfigBar';
+import ConfigBar, { BoardCard, POT_TYPES } from './ConfigBar';
 import ActionTimeline from './ActionTimeline';
 import ResultsPane from './ResultsPane';
 import UploadModal from './UploadModal';
 import CoverageModal from './CoverageModal';
 import SettingsModal from './SettingsModal';
-import LineExplorer from './LineExplorer';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle } from './TweaksPanel';
 import { useSettings } from '../lib/useSettings';
 import { MATCHUPS, FILTERS } from '../lib/data';
 import { deriveQueryLine, matchupToKey, betResponseFoldLine } from '../lib/spotMatch';
+import { findSpot, spotsForMode, spotDataKey, isOopPfr } from '../lib/spots';
 import { SHOW_FISH } from '../lib/flags';
 
 const DEFAULT_BOARD = [null, null, null, null, null];
@@ -41,81 +41,6 @@ function deriveAutoFilters(board) {
   return matched;
 }
 
-const NAV_VIEWS = [
-  { id: 'analyzer', label: 'Analyzer' },
-  { id: 'explorer', label: 'Line Explorer' },
-  { id: 'trainer', label: 'Trainer', href: '/trainer', needs: 'spots' },
-  { id: 'spots', label: 'Spot Browser', href: '/spots', needs: 'spots' },
-  { id: 'exploits', label: 'Exploits', href: '/exploits', needs: 'exploits' },
-  { id: 'summary', label: 'Strategy Summary', href: '/summary', needs: 'summary' },
-];
-
-function NavMenu({ view, onSetView }) {
-  const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState(null); // null = unknown; don't disable until known
-  const current = NAV_VIEWS.find(v => v.id === view) ?? NAV_VIEWS[0];
-
-  // Which strategy-backed pages have data uploaded — drives disabling links that
-  // would otherwise 404.
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/strategy-status')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (!cancelled && d) setStatus(d); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e) => { if (!e.target.closest('.nav-menu')) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDoc);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  const isDisabled = (v) => !!v.needs && status != null && status[v.needs] === false;
-
-  return (
-    <div className="nav-menu">
-      <button
-        className={`nav-menu-trigger${open ? ' open' : ''}`}
-        onClick={() => setOpen(o => !o)}
-        aria-label="Section navigation"
-        aria-expanded={open}
-      >
-        {current.label}<span className="nav-caret">▾</span>
-      </button>
-      {open && (
-        <div className="nav-menu-list">
-          {NAV_VIEWS.map(v => {
-            if (isDisabled(v)) {
-              return (
-                <button key={v.id} className="nav-menu-item disabled" disabled title="No data uploaded">
-                  {v.label}
-                </button>
-              );
-            }
-            return v.href ? (
-              <a key={v.id} className="nav-menu-item" href={v.href}>{v.label}</a>
-            ) : (
-              <button
-                key={v.id}
-                className={`nav-menu-item${view === v.id ? ' active' : ''}`}
-                onClick={() => { onSetView(v.id); setOpen(false); }}
-              >{v.label}</button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Read deep-link state from the URL once, for the initial render. App is a
 // client-only component (ssr:false), so window is available here. Doing this in
 // the state initializers — rather than a mount effect — avoids racing the
@@ -145,7 +70,6 @@ export default function App() {
   const initial = useRef();
   if (!initial.current) initial.current = readInitialState();
 
-  const [view, setView] = useState('analyzer');
   const [ipPos, setIpPos] = useState(initial.current.ipPos);
   const [oopPos, setOopPos] = useState(initial.current.oopPos);
   const [potType, setPotType] = useState(initial.current.potType);
@@ -178,6 +102,7 @@ export default function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
   const [settings, setSetting] = useSettings();
+  const mode = settings.advancedMode ? 'advanced' : 'simple';
   const [uploadOpen, setUploadOpen] = useState(false);
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -189,7 +114,13 @@ export default function App() {
   const nonMarkerLine = line.filter(a => !a.marker);
   const perspective = hero === ipPos ? 'ip' : 'oop';
   const queryLine = deriveQueryLine(nonMarkerLine, hero);
-  const matchupKey = matchupToKey(oopPos, ipPos, potType, playerType, perspective);
+  // Data keys come from the selected spot (exact positions in advanced mode,
+  // grouped in simple); fall back to the grouped key for a not-yet-valid combo.
+  const spot = findSpot(mode, ipPos, oopPos, potType);
+  const keyFor = (persp) => spot
+    ? spotDataKey(spot, playerType, persp)
+    : matchupToKey(oopPos, ipPos, potType, playerType, persp);
+  const matchupKey = keyFor(perspective);
   const lastNonMarkerAction = nonMarkerLine.length > 0 ? nonMarkerLine[nonMarkerLine.length - 1].action : null;
   const lastNonMarkerActor = nonMarkerLine.length > 0 ? nonMarkerLine[nonMarkerLine.length - 1].actor : null;
   const isFacing = lastNonMarkerAction === "bet" || lastNonMarkerAction === "raise";
@@ -198,7 +129,7 @@ export default function App() {
   // the bet rows — not in hero's file. Derive villain's matchup key and query line.
   const villainPos = hero === ipPos ? oopPos : ipPos;
   const villainQueryLine = deriveQueryLine(nonMarkerLine, villainPos);
-  const villainMatchupKey = matchupToKey(oopPos, ipPos, potType, playerType, hero === ipPos ? 'oop' : 'ip');
+  const villainMatchupKey = keyFor(hero === ipPos ? 'oop' : 'ip');
 
   // True when villain made the last bet/raise (hero is the one facing).
   // False when hero raised — in that case villain faces us, so data lives in hero's IP file.
@@ -253,15 +184,17 @@ export default function App() {
   }, [betFoldKey, betFoldLine, fetchSeq]);
 
   useEffect(() => {
-    if (!isValidCombo(ipPos, oopPos, potType)) {
-      setOopPos(getOopOptions(ipPos, potType)[0].id);
+    // Snap to the mode's first spot when the current combo isn't one of its tabs
+    // (e.g. after switching mode, or a hand-edited URL).
+    if (!findSpot(mode, ipPos, oopPos, potType)) {
+      const first = spotsForMode(mode)[0];
+      setIpPos(first.ip); setOopPos(first.oop); setPotType(first.pot);
     }
-  }, [ipPos, potType]);
+  }, [mode, ipPos, oopPos, potType]);
 
   useEffect(() => {
-    // OOP is PFR when: BvB SRP (SB opened) or 3bp with Blinds OOP (blind 3-bet).
-    const oopIsPfr = (ipPos === 'BB' && potType === 'srp') || (potType === '3bp' && oopPos === 'Blinds');
-    if (oopIsPfr) {
+    // OOP is PFR when: BvB SRP (SB opened) or a blind 3-bets a later opener.
+    if (isOopPfr(ipPos, oopPos, potType)) {
       setHero(oopPos);
     } else if (hero !== ipPos && hero !== oopPos) {
       setHero(ipPos);
@@ -377,65 +310,61 @@ export default function App() {
     <div className="app no-topbar">
       <div className="page">
         <ConfigBar
+          mode={mode}
           ipPos={ipPos} setIpPos={setIpPos}
           oopPos={oopPos} setOopPos={setOopPos}
           potType={potType} setPotType={setPotType}
           playerType={playerType} setPlayerType={setPlayerType}
-          nav={<NavMenu view={view} onSetView={setView} />}
           coverageSeq={fetchSeq}
         />
 
-        {view === 'explorer' ? (
-          <LineExplorer matchupKey={matchupKey} />
-        ) : (
-          <>
-            <section className="line-card">
-              <ActionTimeline
-                ref={timelineRef}
-                line={line} setLine={setLine}
-                matchup={matchup} hero={hero}
-                board={board} setBoard={setBoard}
-                clearBoardOnReset={settings.clearBoardOnReset}
-                chips={chips} setChips={setChips}
-                sizes={sizes} setSizes={setSizes}
-              />
-            </section>
+        <>
+          <section className="line-card">
+            <ActionTimeline
+              ref={timelineRef}
+              line={line} setLine={setLine}
+              matchup={matchup} hero={hero}
+              board={board} setBoard={setBoard}
+              clearBoardOnReset={settings.clearBoardOnReset}
+              chips={chips} setChips={setChips}
+              sizes={sizes} setSizes={setSizes}
+            />
+          </section>
 
-            <BoardCard board={board} setBoard={setBoard} />
+          <BoardCard board={board} setBoard={setBoard} />
 
-            {!effectiveFetchLine ? (
-              nonMarkerLine.length === 0 ? (
-                <div className="empty-state">
-                  <div className="es-title">Build an action line</div>
-                  <div className="es-sub">Pick actions on the timeline above to see population frequencies and EV.</div>
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <div className="es-title">No data for this spot</div>
-                </div>
-              )
+          {!effectiveFetchLine ? (
+            nonMarkerLine.length === 0 ? (
+              <div className="empty-state">
+                <div className="es-title">Build an action line</div>
+                <div className="es-sub">Pick actions on the timeline above to see population frequencies and EV.</div>
+              </div>
             ) : (
-              <ResultsPane
-                line={nonMarkerLine}
-                hero={hero}
-                matchup={matchup}
-                filters={filters}
-                board={board}
-                setBoard={setBoard}
-                spotData={spotData}
-                raiseSpotData={raiseSpotData}
-                betFoldData={betFoldData}
-                onUpload={() => setUploadOpen(true)}
-              />
-            )}
+              <div className="empty-state">
+                <div className="es-title">No data for this spot</div>
+              </div>
+            )
+          ) : (
+            <ResultsPane
+              line={nonMarkerLine}
+              hero={hero}
+              matchup={matchup}
+              filters={filters}
+              board={board}
+              setBoard={setBoard}
+              spotData={spotData}
+              raiseSpotData={raiseSpotData}
+              betFoldData={betFoldData}
+              onUpload={() => setUploadOpen(true)}
+            />
+          )}
 
-            <div className="page-footer">
-              <button className="ghost-btn" onClick={() => setUploadOpen(true)}>Upload JSON</button>
-              <button className="ghost-btn" onClick={() => setCoverageOpen(true)}>Coverage</button>
-              <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>Settings</button>
-            </div>
-          </>
-        )}
+          <div className="page-footer">
+            <button className="ghost-btn" onClick={() => setUploadOpen(true)}>Upload JSON</button>
+            <button className="ghost-btn" onClick={() => setCoverageOpen(true)}>Coverage</button>
+            <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>Settings</button>
+          </div>
+        </>
       </div>
 
       <TweaksPanel title="Tweaks">
@@ -460,13 +389,14 @@ export default function App() {
 
       {uploadOpen && (
         <UploadModal
+          mode={mode}
           onClose={() => setUploadOpen(false)}
           onSuccess={handleUploadSuccess}
         />
       )}
 
       {coverageOpen && (
-        <CoverageModal onClose={() => setCoverageOpen(false)} onUploaded={handleUploadSuccess} />
+        <CoverageModal mode={mode} onClose={() => setCoverageOpen(false)} onUploaded={handleUploadSuccess} />
       )}
 
       {settingsOpen && (

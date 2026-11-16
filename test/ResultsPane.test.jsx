@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, within, act } from '@testing-library/react';
+import { render, screen, within, act, fireEvent } from '@testing-library/react';
 import ResultsPane from '../components/ResultsPane.jsx';
 import fullBet from './fixtures/full-bet.json';
 import fullFacing from './fixtures/full-facing.json';
@@ -117,11 +117,15 @@ describe('ResultsPane — bet mode (hero deciding whether to bet)', () => {
     expect(screen.getByText('75%')).toBeInTheDocument();
   });
 
-  it('size table next-action cell shows BF/BC/BR with one decimal', () => {
-    renderResults();
-    // 33%: BF=50, BC=25, BR=5 (total 80) → 62.5% / 31.3% / 6.3%
-    expect(screen.getByText('62.5%')).toBeInTheDocument();
-    expect(screen.getByText('31.3%')).toBeInTheDocument();
+  it('Bluff EV tooltip shows villain fold % with one decimal', () => {
+    const { container } = renderResults();
+    // 33%: BF=50, BC=25, BR=5 (total 80) → villain folds 62.5%
+    const row = [...container.querySelectorAll('.data-table.cols-betsize tbody tr')]
+      .find(tr => tr.querySelector('.size-label')?.textContent.trim().startsWith('33%'));
+    fireEvent.mouseEnter(row.querySelector('.tt-wrap'));
+    const tip = document.querySelector('.tt-box');
+    expect(within(tip).getByText('Villain folds')).toBeInTheDocument();
+    expect(within(tip).getByText('62.5%')).toBeInTheDocument();
   });
 });
 
@@ -181,13 +185,15 @@ describe('ResultsPane — facing mode (hero deciding whether to call)', () => {
     expect(within(table).queryByText(/^Check\s*$/)).toBeNull();
   });
 
-  it('omits Bluff EV tabs when raiseSpotData is null', () => {
+  it('disables Bluff EV tabs when raiseSpotData is null', () => {
     renderResults({
       line: FACING_LINE,
       spotData: fullFacing.data,
       raiseSpotData: null,
     });
-    expect(screen.queryByRole('button', { name: /Bluff EV vs size/i })).not.toBeInTheDocument();
+    const tab = screen.getByRole('button', { name: /Bluff EV vs size/i });
+    expect(tab).toBeDisabled();
+    expect(tab).toHaveAttribute('title', 'No data for this spot');
   });
 });
 

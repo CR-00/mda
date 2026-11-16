@@ -3,6 +3,11 @@ import { useEffect } from 'react';
 // One entry per toggleable preference. Add rows here as more settings land.
 const TOGGLES = [
   {
+    key: 'advancedMode',
+    label: 'Advanced mode',
+    desc: 'Position-specific spots (BTN vs BB, CO vs BB, …) instead of grouped ones (LP vs BB). Needs its own uploads.',
+  },
+  {
     key: 'clearBoardOnReset',
     label: 'Clear board on reset',
     desc: 'Empty the board when you return to the root node or change the spot.',

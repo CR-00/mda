@@ -1,12 +1,22 @@
 import { useState } from 'react';
 import { normalizeSnapBody } from '../lib/snapFormat';
+import { isRiverLine } from '../lib/lines';
+import { uploadDataKey, isKnownSpotKey } from '../lib/uploadKey';
+import { isShortlisted } from '../lib/shortlist';
 
 const POT_TYPES = [
   { id: 'srp', label: 'SRP' },
   { id: '3bp', label: '3BP' },
+  { id: '4bp', label: '4BP' },
 ];
 
-export default function UploadModal({ onClose, onSuccess }) {
+const SAVE_MODES = [
+  { id: 'simple', label: 'Simple' },
+  { id: 'advanced', label: 'Advanced' },
+];
+
+export default function UploadModal({ mode = 'simple', onClose, onSuccess }) {
+  const [saveMode, setSaveMode] = useState(mode);
   const [preview, setPreview] = useState(null);
   const [potType, setPotType] = useState('srp');
   const [error, setError] = useState(null);
@@ -27,16 +37,35 @@ export default function UploadModal({ onClose, onSuccess }) {
           `query keys: ${Object.keys(parsed.query).join(', ')}`
         );
       }
-      if (!line) throw new Error(`query.line is ${JSON.stringify(line)} (expected a string like "B")`);
+      if (!line) throw new Error(`query.line is ${JSON.stringify(line)} (expected a string like "B-X-B")`);
+      if (!isRiverLine(line)) {
+        throw new Error(`Only river nodes can be imported. Line "${line}" is not a river line (expected e.g. "B-X-B").`);
+      }
       if (!Array.isArray(parsed?.data)) throw new Error('Missing data array in JSON');
       const inferredPotType = (parsed?.query?.['Pot Type']?.[0] ?? '').toLowerCase().replace(/\s+/g, '');
       setError(null);
-      setPotType(inferredPotType === '3bp' || inferredPotType === '3betpot' ? '3bp' : 'srp');
+      setPotType(
+        inferredPotType === '4bp' || inferredPotType === '4betpot' ? '4bp'
+        : inferredPotType === '3bp' || inferredPotType === '3betpot' ? '3bp'
+        : 'srp'
+      );
       setPreview({ matchup, line, rowCount: parsed.data.length, raw: parsed });
     } catch (err) {
       setError(err.message);
     }
   };
+
+  // The pot-type toggle changes the target configuration, so check the
+  // shortlist against the current choice rather than at paste time.
+  // A paste combining several snap matchups can only be saved grouped.
+  const multiMatchup = (preview?.raw?.query?.matchups?.length ?? 0) > 1;
+  const effectiveMode = multiMatchup ? 'simple' : saveMode;
+  const dataKey = preview ? uploadDataKey({ ...preview.raw, _potType: potType }, effectiveMode) : null;
+  const blockReason = !preview ? null
+    : !dataKey ? 'Advanced mode needs an export of a single matchup.'
+    : !isKnownSpotKey(dataKey) ? `${dataKey} isn't one of the app's ${effectiveMode} spots, so it can't be saved.`
+    : !isShortlisted(dataKey, preview.line) ? `Line "${preview.line}" isn't on the upload shortlist for ${dataKey}, so it can't be saved.`
+    : null;
 
   const handlePaste = (e) => {
     e.preventDefault();
@@ -51,7 +80,7 @@ export default function UploadModal({ onClose, onSuccess }) {
       const res = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...preview.raw, _potType: potType }),
+        body: JSON.stringify({ ...preview.raw, _potType: potType, _mode: effectiveMode }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Upload failed');
@@ -100,6 +129,29 @@ export default function UploadModal({ onClose, onSuccess }) {
               </div>
             </div>
             <div className="um-meta-row">
+              <span className="um-label">Save as</span>
+              <div className="um-seg">
+                {SAVE_MODES.map(m => {
+                  const disabled = m.id === 'advanced' && multiMatchup;
+                  return (
+                    <button
+                      key={m.id}
+                      className={`um-seg-btn${effectiveMode === m.id ? ' active' : ''}`}
+                      onClick={() => setSaveMode(m.id)}
+                      disabled={disabled}
+                      title={disabled ? 'This export combines several matchups, so it can only be saved grouped' : undefined}
+                    >
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="um-meta-row">
+              <span className="um-label">Saves to</span>
+              <span className="um-val mono">{dataKey ?? '—'}</span>
+            </div>
+            <div className="um-meta-row">
               <span className="um-label">Rows</span>
               <span className="um-val mono">{preview.rowCount}</span>
             </div>
@@ -120,6 +172,7 @@ export default function UploadModal({ onClose, onSuccess }) {
           />
         )}
 
+        {blockReason && !error && <div className="um-error">{blockReason}</div>}
         {error && <div className="um-error">{error}</div>}
 
         <div className="um-actions">
@@ -127,7 +180,7 @@ export default function UploadModal({ onClose, onSuccess }) {
           <button
             className="um-upload-btn"
             onClick={handleUpload}
-            disabled={!preview || loading}
+            disabled={!preview || loading || !!blockReason}
           >
             {loading ? 'Saving…' : 'Save spot'}
           </button>

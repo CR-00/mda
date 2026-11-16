@@ -82,3 +82,17 @@ describe('filename safety', () => {
     }
   });
 });
+
+import { isRiverLine } from '../lib/lines';
+
+describe('isRiverLine', () => {
+  it('accepts river lines', () => {
+    for (const l of ALL_LINES.river) expect(isRiverLine(l)).toBe(true);
+  });
+  it('rejects flop and turn lines', () => {
+    for (const l of [...ALL_LINES.flop, ...ALL_LINES.turn]) expect(isRiverLine(l)).toBe(false);
+  });
+  it('rejects malformed input', () => {
+    for (const l of [undefined, null, '', 'B--B', 'B-X-B-B', '-B-B']) expect(isRiverLine(l)).toBe(false);
+  });
+});
