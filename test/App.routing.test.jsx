@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, waitFor, act } from '@testing-library/react';
 import App from '../components/App.jsx';
+import { isShortlisted } from '../lib/shortlist.js';
 
 function getFetchedUrls() {
   return fetch.mock.calls.map(([url]) => url);
@@ -298,5 +299,29 @@ describe('App routing — advanced mode (Settings → Advanced mode on)', () => 
       ip: 'BTN', oop: 'BB', pot: '3bp', hero: 'BB',
     });
     expect(urls).toContain('/api/data?matchup=BB_vs_BTN_3bp_reg_oop&line=B');
+  });
+});
+
+// ─── river screens only need bet / raise / fold files ───────────────────────
+
+describe('App routing — river screens use shortlisted files', () => {
+  const riverLines = (urls) => urls
+    .map(u => new URLSearchParams(u.split('?')[1]))
+    .filter(p => p.get('line').split('-').length === 3)
+    .map(p => ({ key: p.get('matchup'), line: p.get('line') }));
+
+  it.each([
+    ['LP checked to on the river (bet screen)', 'LP', 'xbcxxx'],
+    ['LP facing a river lead', 'LP', 'xbcxxb'],
+    ['BB to act first on the river', 'BB', 'xbcxx'],
+    ['BB facing a river bet', 'BB', 'xbcxxxb'],
+  ])('%s', async (_name, hero, line) => {
+    const urls = await renderAppAndWaitForFetches({ ip: 'LP', oop: 'BB', pot: 'srp', hero, line });
+    const river = riverLines(urls);
+    expect(river.length).toBeGreaterThan(0);
+    for (const { key, line: l } of river) {
+      expect('BRF').toContain(l[l.length - 1]);
+      expect(isShortlisted(key, l) || l.endsWith('BF')).toBe(true); // …BF = raise tabs, optional
+    }
   });
 });

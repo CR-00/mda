@@ -37,7 +37,14 @@ describe('shortlist contents', () => {
     }
   });
   it('has the expected sizes', () => {
-    expect(keys.map(k => shortlistFor(k).length)).toEqual([22, 22, 34, 35]);
+    expect(keys.map(k => shortlistFor(k).length)).toEqual([13, 13, 20, 20]);
+  });
+  it('leaves out river lines ending in a check or call', () => {
+    for (const k of keys) {
+      for (const l of shortlistFor(k)) expect('BRF').toContain(l[l.length - 1]);
+    }
+    expect(isShortlisted('BB_vs_LP_srp_reg_ip', 'B-X-X')).toBe(false);
+    expect(isShortlisted('BB_vs_LP_srp_reg_oop', 'XC-X-XC')).toBe(false);
   });
   it('isShortlisted is per role', () => {
     expect(isShortlisted('BB_vs_LP_srp_reg_ip', 'B-X-B')).toBe(true);
